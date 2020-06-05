@@ -515,6 +515,7 @@
     <Compile Include="WPF\Renderer.cs" />
     <Compile Include="WPF\SheetTabControl.cs" />
     <Compile Include="WPF\Utility.cs" />
+    <Compile Include="WPF\WPFControl.HitTest.cs" />
     <Compile Include="Zip\CRC32.cs" />
     <Compile Include="Zip\Deflate.cs" />
     <Compile Include="Zip\Events.cs" />
