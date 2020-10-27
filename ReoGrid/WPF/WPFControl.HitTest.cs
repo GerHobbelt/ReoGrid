@@ -7,6 +7,7 @@ namespace unvell.ReoGrid
 {
     public partial class ReoGridControl
     {
+#if WPF
         public CellPosition HitTest(System.Windows.Point location)
         {
             double right = this.RenderSize.Width;
@@ -39,7 +40,6 @@ namespace unvell.ReoGrid
                         sheet.FindRowByPosition(loc.Y, out row);
                         col = -1;
                     }
-
                     else if (targetview is Views.ColumnHeaderView)
                     {
                         sheet.FindColumnByPosition(loc.X, out col);
@@ -52,8 +52,8 @@ namespace unvell.ReoGrid
                     }
                 }
             }
-
             return new CellPosition(row, col);
         }
+#endif
     }
 }
