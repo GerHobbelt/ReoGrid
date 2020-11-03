@@ -16,6 +16,17 @@ namespace unvell.ReoGrid.WPFDemo
 	/// </summary>
 	public partial class MainWindow : Window
 	{
+		private void Worksheet_CellDataChanged(object sender, unvell.ReoGrid.Events.CellEventArgs e)
+        {
+
+        }
+
+		private void Sheet_DragCellDataChanged(object sender, unvell.ReoGrid.Events.DragCellEventArgs e)
+        {
+			e.IsCancelled = true;
+        }
+
+
 		public MainWindow()
 		{
 			InitializeComponent();
@@ -46,12 +57,14 @@ namespace unvell.ReoGrid.WPFDemo
 			this.viewSheetTabNewButtonVisible.IsChecked = grid.SheetTabNewButtonVisible;
 
 			var sheet = grid.CurrentWorksheet;
+			sheet.CellDataChanged += Worksheet_CellDataChanged;
+            sheet.DragCellDataChanged += Sheet_DragCellDataChanged;
 			this.viewGuideLineVisible.IsChecked = sheet.HasSettings(WorksheetSettings.View_ShowGridLine);
 			this.viewPageBreaksVisible.IsChecked = sheet.HasSettings(WorksheetSettings.View_ShowPageBreaks);
 		}
 
-		#region Demo Sheet 1 : Document Template
-		private void AddDemoSheet1()
+        #region Demo Sheet 1 : Document Template
+        private void AddDemoSheet1()
 		{
 			/****************** Sheet1 : Document Template ********************/
 			var worksheet = grid.NewWorksheet("Document");
