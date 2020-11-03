@@ -30,6 +30,7 @@ namespace unvell.ReoGrid.WPFDemo
 		public MainWindow()
 		{
 			InitializeComponent();
+            Loaded += MainWindow_Loaded;
 
 			// don't use Clear method in actual application,
 			// instead, load template into the first worksheet directly.
@@ -38,7 +39,7 @@ namespace unvell.ReoGrid.WPFDemo
 			// handles event to update menu check status.
 			grid.SettingsChanged += (s, e) => UpdateMenuChecks();
 			grid.CurrentWorksheetChanged += (s, e) => UpdateMenuChecks();
-
+			
 			// add demo sheet 1: document template
 			AddDemoSheet1();
 
@@ -49,6 +50,15 @@ namespace unvell.ReoGrid.WPFDemo
 			AddDemoSheet3();
 		}
 
+        private void MainWindow_Loaded(object sender, RoutedEventArgs e)
+        {
+			grid.CurrentWorksheet.BeforeCellDataChanged += Worksheet_BeforeCellDataChanged;
+
+		}
+		private void Worksheet_BeforeCellDataChanged(object sender, unvell.ReoGrid.Events.BeforeCellDataChangedEventArgs e)
+		{
+
+		}
 		private void UpdateMenuChecks()
 		{
 			this.viewHorizontalScrollbarVisible.IsChecked = grid.HasSettings(unvell.ReoGrid.WorkbookSettings.View_ShowHorScroll);
