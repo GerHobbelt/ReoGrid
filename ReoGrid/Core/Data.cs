@@ -185,7 +185,11 @@ namespace unvell.ReoGrid
                 }
                 else
                 {
-                    toCell.Data = autoFillExtrapolatedValues[toCellIndex];
+                    //toCell.Data = autoFillExtrapolatedValues[toCellIndex];
+                    if(toCell.SetDragData(autoFillExtrapolatedValues[toCellIndex])==false)
+                    {
+                        break;
+                    }
                 }
             }
         }
