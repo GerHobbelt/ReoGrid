@@ -188,7 +188,11 @@ namespace unvell.ReoGrid
                     toCell.DataFormat = fromCell.DataFormat;
                     toCell.DataFormatArgs = fromCell.DataFormatArgs;
                     
-                    toCell.Data = autoFillExtrapolatedValues[toCellIndex];
+                    //toCell.Data = autoFillExtrapolatedValues[toCellIndex];
+                    if (toCell.SetDragData(autoFillExtrapolatedValues[toCellIndex]) == false)
+                    {
+                        break;
+                    }
                     toCell.Style = fromCell.Style;
                     //toCell.Style.HAlign = fromCell.Style.HAlign;
                     //toCell.Style.VAlign = fromCell.Style.VAlign;
