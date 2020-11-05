@@ -170,7 +170,12 @@ namespace unvell.ReoGrid
                 .ToList();
             var autoFillSequence = new AutoFillSequence(autoFillSequenceInput);
             var autoFillExtrapolatedValues = autoFillSequence.Extrapolate(toCells.Count);
-
+            DragCellData dragCellData = new DragCellData()
+            {
+                FromCells = new List<CellPosition>(fromCells),
+                ToCells = new List<CellPosition>(toCells)
+            };
+            
             for (var toCellIndex = 0; toCellIndex < toCells.Count; toCellIndex++)
             {
                 var fromCellIndex = toCellIndex % fromCells.Count;
@@ -187,9 +192,10 @@ namespace unvell.ReoGrid
                 {
                     toCell.DataFormat = fromCell.DataFormat;
                     toCell.DataFormatArgs = fromCell.DataFormatArgs;
-                    
+
                     //toCell.Data = autoFillExtrapolatedValues[toCellIndex];
-                    if (toCell.SetDragData(autoFillExtrapolatedValues[toCellIndex]) == false)
+                    dragCellData.Data = autoFillExtrapolatedValues[toCellIndex];
+                    if (toCell.SetDragData(dragCellData) == false)
                     {
                         break;
                     }

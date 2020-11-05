@@ -26,9 +26,26 @@ namespace unvell.ReoGrid.Events
             IsCancelled = false;
         }
     }
+    public class BeforeDragCellDataChangedEventArgs : EventArgs
+    {
+        public List<CellPosition> FromCells { get; internal set; }
+        public List<CellPosition> ToCells { get; internal set; }
+        public bool IsCancelled { get; set; } = false;
+        /// <summary>
+        /// Create instance for CellEventArgs with specified cell.
+        /// </summary>
+        /// <param name="cell">Instance of current editing cell.</param>
+        public BeforeDragCellDataChangedEventArgs()
+        {
+            IsCancelled = false;
+        }
+    }
+
     public class DragCellEventArgs : CellEventArgs
     {
         public bool IsCancelled { get; set; } = false;
+        public List<CellPosition> FromCells { get; internal set; }
+        public List<CellPosition> ToCells { get; internal set; }
         /// <summary>
         /// Create instance for CellEventArgs with specified cell.
         /// </summary>

@@ -23,7 +23,7 @@ namespace unvell.ReoGrid.WPFDemo
 
 		private void Sheet_DragCellDataChanged(object sender, unvell.ReoGrid.Events.DragCellEventArgs e)
         {
-			e.IsCancelled = true;
+			//e.IsCancelled = true;
         }
 
 

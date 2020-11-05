@@ -11,9 +11,16 @@ using unvell.ReoScript;
 
 namespace unvell.ReoGrid
 {
+    public class DragCellData
+    {
+        public List<CellPosition> FromCells { get; internal set; }
+        public List<CellPosition> ToCells { get; internal set; }
+        public string OperationId { get; private set; } = Guid.NewGuid().ToString("D");
+        public object Data { get; set; }
+    }
     partial class Cell
     {
-        internal bool SetDragData(object value)
+        internal bool SetDragData(DragCellData value)
         {
             if (this.worksheet != null)
             {
@@ -22,7 +29,7 @@ namespace unvell.ReoGrid
             }
             else
             {
-                this.InnerData = value;
+                this.InnerData = value.Data;
                 return true;
             }
         }
@@ -30,14 +37,14 @@ namespace unvell.ReoGrid
 
     partial class Worksheet
     {
-        internal bool DragUpdateCellData(Cell cell, object data, Stack<List<Cell>> dirtyCellStack = null)
+        internal bool DragUpdateCellData(Cell cell, DragCellData data, Stack<List<Cell>> dirtyCellStack = null)
         {
             if (cell.body != null)
             {
-                data = cell.body.OnSetData(data);
+                data.Data = cell.body.OnSetData(data.Data);
             }
 
-            cell.InnerData = data;
+            cell.InnerData = data.Data;
 
             if (this.HasSettings(WorksheetSettings.Edit_AutoFormatCell))
             {
@@ -45,7 +52,7 @@ namespace unvell.ReoGrid
             }
             else
             {
-                cell.InnerDisplay = Convert.ToString(data);
+                cell.InnerDisplay = Convert.ToString(data.Data);
             }
 
 #if WPF
@@ -64,9 +71,9 @@ namespace unvell.ReoGrid
             //}
 #endif
 
-            return AfterDragCellDataUpdate(cell, dirtyCellStack);
+            return AfterDragCellDataUpdate(cell, data, dirtyCellStack);
         }
-        private bool AfterDragCellDataUpdate(Cell cell, Stack<List<Cell>> dirtyCellStack = null)
+        private bool AfterDragCellDataUpdate(Cell cell, DragCellData data, Stack<List<Cell>> dirtyCellStack = null)
         {
 #if FORMULA
             if ((this.settings & WorksheetSettings.Formula_AutoUpdateReferenceCell)
@@ -110,17 +117,21 @@ namespace unvell.ReoGrid
                 }
 
                 // raise text changed event
-                if (RaiseDragCellDataChangedEvent(cell) == false)
+                if (RaiseDragCellDataChangedEvent(cell, data) == false)
                     return false;
             }
             return true;
         }
 
-        internal bool RaiseDragCellDataChangedEvent(Cell cell)
+        internal bool RaiseDragCellDataChangedEvent(Cell cell, DragCellData data)
         {
             if (DragCellDataChanged != null)
             {
-                DragCellEventArgs eventargs = new DragCellEventArgs(cell);
+                DragCellEventArgs eventargs = new DragCellEventArgs(cell)
+                {
+                    FromCells = data.FromCells,
+                    ToCells = data.ToCells
+                };
                 DragCellDataChanged(this, eventargs);
                 if (eventargs.IsCancelled)
                 {
@@ -133,27 +144,27 @@ namespace unvell.ReoGrid
             return true;
         }
 
-        internal bool SetDragSingleCellData(Cell cell, object data)
+        internal bool SetDragSingleCellData(Cell cell, DragCellData data)
         {
-            var args = new BeforeCellDataChangedEventArgs(cell, data, cell.Data);
+            var args = new BeforeCellDataChangedEventArgs(cell, data.Data, cell.Data);
             BeforeCellDataChanged?.Invoke(this, args);
             if (args.IsCancelled)
                 return false;
             // set cell body
-            if (data is ICellBody)
+            if (data.Data is ICellBody)
             {
-                SetCellBody(cell, (ICellBody)data);
+                SetCellBody(cell, (ICellBody)data.Data);
 
-                data = cell.InnerData;
+                data.Data = cell.InnerData;
             }
 
-            if (data is string || data is StringBuilder
+            if (data.Data is string || data.Data is StringBuilder
 #if EX_SCRIPT
  || data is StringObject
 #endif // EX_SCRIPT
                 )
             {
-                string str = data is string ? (string)(data) : Convert.ToString(data);
+                string str = data.Data is string ? (string)(data.Data) : Convert.ToString(data.Data);
 
                 // cell data processed as plain-text
                 if (str.Length > 1)
@@ -176,7 +187,7 @@ namespace unvell.ReoGrid
 
 #endif // FORMULA
 
-                        cell.InnerData = data;
+                        cell.InnerData = data.Data;
                         cell.InnerDisplay = str.Substring(1);
 
                         AfterCellDataUpdate(cell);
