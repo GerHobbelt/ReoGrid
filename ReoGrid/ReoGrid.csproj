@@ -155,6 +155,7 @@
     <LangVersion>default</LangVersion>
     <ErrorReport>prompt</ErrorReport>
     <CodeAnalysisRuleSet>MinimumRecommendedRules.ruleset</CodeAnalysisRuleSet>
+    <Prefer32Bit>false</Prefer32Bit>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="Antlr3.Runtime" Condition=" '$(Configuration)|$(Platform)' == 'Extension|AnyCPU' ">
@@ -350,6 +351,7 @@
     <Compile Include="DataFormat\DateTimeDataFormatter.cs" />
     <Compile Include="DataFormat\PercentDataFormatter.cs" />
     <Compile Include="DataFormat\TextDataFormatter.cs" />
+    <Compile Include="Data\DataProvider.cs" />
     <Compile Include="Drawing\Canvas.cs" />
     <Compile Include="Drawing\DrawingContext.cs" />
     <Compile Include="Drawing\Events.cs" />
@@ -410,6 +412,7 @@
     <Compile Include="Utility\MeasureToolkit.cs" />
     <Compile Include="Utility\PrinterUtility.cs" />
     <Compile Include="Utility\StyleUtility.cs" />
+    <Compile Include="Views\CellsViewport.DataProvider.cs" />
     <Compile Include="WinForm\AboutForm.cs" />
     <Compile Include="WinForm\AboutForm.Designer.cs">
       <DependentUpon>AboutForm.cs</DependentUpon>

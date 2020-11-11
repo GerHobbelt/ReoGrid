@@ -54,7 +54,7 @@ namespace unvell.ReoGrid.Views
 	{
 	}
 
-	class CellsViewport : Viewport, IRangeSelectableView
+	partial class CellsViewport : Viewport, IRangeSelectableView
 	{
 		public CellsViewport(IViewportController vc)
 			: base(vc)
@@ -92,8 +92,8 @@ namespace unvell.ReoGrid.Views
 			}
 
 			DrawContent(dc);
-
 			DrawSelection(dc);
+			DrawDataProvider(dc);
 		}
 		#endregion // DrawView
 

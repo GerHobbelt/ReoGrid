@@ -63,9 +63,9 @@ namespace unvell.ReoGrid.Views
 		public SheetViewport(IViewportController vc)
 			: base(vc)
 		{
-			this.children = new List<IView>(4)
-				{
-					new CellsViewport(vc) { PerformTransform = false },
+            this.children = new List<IView>(4)
+                {
+                    new CellsViewport(vc) { PerformTransform = false },
 
 #if DRAWING
 					new DrawingViewport(vc) { PerformTransform = false },
@@ -75,21 +75,45 @@ namespace unvell.ReoGrid.Views
 #endif // DRAWING
 
 				new CellsForegroundView(vc) { PerformTransform = false },
-				};
-		}
+                };
+        }
 	}
 
 }
 
 namespace unvell.ReoGrid
 {
-	using unvell.ReoGrid.Views;
+    using unvell.ReoGrid.Data;
+    using unvell.ReoGrid.Views;
 
 	partial class Worksheet
 	{
 		internal void InitViewportController()
 		{
 			this.viewportController = new NormalViewportController(this);
+		}
+		public IList<DataProvider> DataProviders
+        {
+            get
+            {
+				SheetViewport stport = (this.viewportController as NormalViewportController).View.Children.FirstOrDefault(x => x is SheetViewport) as SheetViewport;
+				if (stport == null)
+					return null;
+				CellsViewport cvport = stport.Children.FirstOrDefault(x => x is CellsViewport) as CellsViewport;
+				if (cvport == null)
+					return null;
+				return cvport.DataProviders;
+			}
+        }
+		public void RegisterDataProvider(DataProvider dataprovider)
+        {
+			SheetViewport stport = (this.viewportController as NormalViewportController).View.Children.FirstOrDefault(x => x is SheetViewport) as SheetViewport;
+            if (stport == null)
+				return;
+			CellsViewport cvport = stport.Children.FirstOrDefault(x => x is CellsViewport) as CellsViewport;
+			if (cvport == null)
+				return;
+			cvport.RegisterDataProvider(dataprovider);
 		}
 	}
 }

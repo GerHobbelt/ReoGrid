@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using unvell.ReoGrid.CellTypes;
+using unvell.ReoGrid.Data;
 using unvell.ReoGrid.DataFormat;
 using unvell.ReoGrid.Events;
 using unvell.ReoGrid.Formula;
@@ -20,6 +21,7 @@ namespace unvell.ReoGrid
     }
     partial class Cell
     {
+        public DataProvider DataProvider { get; set; }
         internal bool SetDragData(DragCellData value)
         {
             if (this.worksheet != null)
