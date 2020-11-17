@@ -109,7 +109,7 @@ namespace unvell.ReoGrid.WPFDemo
 			// auto fill other subtotals
 			worksheet.AutoFillSerial("G21", "G22:G35");
 			var dp = new Data.DataProvider();
-			dp.DataProviderSelector = new DataProviderSelector();
+			dp.ItemsSource = new List<string>() { "A", "B" };
 			worksheet.RegisterDataProvider(dp);
 			for (int i = 0; i < 3; i++)
 			{
