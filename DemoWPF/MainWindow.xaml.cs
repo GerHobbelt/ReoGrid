@@ -48,6 +48,7 @@ namespace unvell.ReoGrid.WPFDemo
 
 			// add demo sheet 3: cell types
 			AddDemoSheet3();
+			AddDemoSheet4();
 		}
 		private void CurrentWorksheet_FocusPosChanged(object sender, unvell.ReoGrid.Events.CellPosEventArgs e)
 		{
@@ -329,7 +330,21 @@ namespace unvell.ReoGrid.WPFDemo
 			// information cell
 			worksheet.SetRangeBorders(19, 0, 1, 10, BorderPositions.Top, RangeBorderStyle.GraySolid);
 		}
+		#region Demo Sheet 4 : DataProvider
+		private void AddDemoSheet4()
+		{
+			/****************** Sheet3 : Built-in Cell Types ********************/
+			var worksheet = grid.NewWorksheet("DataProvider");
+            Data.DataProvider dp = null;
+			dp = new Data.DataProvider();
+			dp.ItemsSource = new List<string>() { "A", "B", "C" };
+			worksheet.RegisterDataProvider(dp);
+			worksheet[0, 0] = "A";
+			worksheet.GetCell(0, 0).DataProvider = dp;
+			// set default sheet style
 
+		}
+		#endregion
 		private void ShowText(Worksheet sheet, string text)
 		{
 			sheet[19, 0] = text;
