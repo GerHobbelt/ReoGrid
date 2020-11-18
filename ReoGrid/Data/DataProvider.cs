@@ -68,8 +68,118 @@ namespace unvell.ReoGrid.Data
     }
 
 
+    public static class DataProviderHelper
+    {
+        /// <summary>
+        /// Adds or inserts a child back into its parent
+        /// </summary>
+        /// <param name="child"></param>
+        /// <param name="index"></param>
+        public static void AddToParent(this UIElement child, DependencyObject parent, int? index = null)
+        {
+            if (parent == null)
+                return;
+
+            if (parent is ItemsControl itemsControl)
+                if (index == null)
+                    itemsControl.Items.Add(child);
+                else
+                    itemsControl.Items.Insert(index.Value, child);
+            else if (parent is Panel panel)
+                if (index == null)
+                    panel.Children.Add(child);
+                else
+                    panel.Children.Insert(index.Value, child);
+            else if (parent is Decorator decorator)
+                decorator.Child = child;
+            else if (parent is ContentPresenter contentPresenter)
+                contentPresenter.Content = child;
+            else if (parent is ContentControl contentControl)
+                contentControl.Content = child;
+        }
+
+        /// <summary>
+        /// Removes the child from its parent collection or its content.
+        /// </summary>
+        /// <param name="child"></param>
+        /// <param name="parent"></param>
+        /// <returns></returns>
+        public static bool RemoveFromParent(this UIElement child, out DependencyObject parent, out int? index)
+        {
+            parent = GetParent(child, true);
+            if (parent == null)
+                parent = GetParent(child, false);
+
+            index = null;
+
+            if (parent == null)
+                return false;
+
+            if (parent is ItemsControl itemsControl)
+            {
+                if (itemsControl.Items.Contains(child))
+                {
+                    index = itemsControl.Items.IndexOf(child);
+                    itemsControl.Items.Remove(child);
+                    return true;
+                }
+            }
+            else if (parent is Panel panel)
+            {
+                if (panel.Children.Contains(child))
+                {
+                    index = panel.Children.IndexOf(child);
+                    panel.Children.Remove(child);
+                    return true;
+                }
+            }
+            else if (parent is Decorator decorator)
+            {
+                if (decorator.Child == child)
+                {
+                    decorator.Child = null;
+                    return true;
+                }
+            }
+            else if (parent is ContentPresenter contentPresenter)
+            {
+                if (contentPresenter.Content == child)
+                {
+                    contentPresenter.Content = null;
+                    return true;
+                }
+            }
+            else if (parent is ContentControl contentControl)
+            {
+                if (contentControl.Content == child)
+                {
+                    contentControl.Content = null;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        public static DependencyObject GetParent(this DependencyObject depObj, bool isVisualTree)
+        {
+            if (isVisualTree)
+            {
+                if (depObj is System.Windows.Media.Visual || depObj is System.Windows.Media.Media3D.Visual3D)
+                    return System.Windows.Media.VisualTreeHelper.GetParent(depObj);
+                return null;
+            }
+            else
+                return LogicalTreeHelper.GetParent(depObj);
+        }
+    }
+
     public class DataProvider : IDisposable
     {
+        public WeakReference<ToggleButton> Trigger { get; private set; }
+        public WeakReference<Popup> Selector { get; private set; }
+        public WeakReference<Cell> ActiveCell { get; private set; }
+
         private readonly HookProc _HookProc;
         private IntPtr _hMouseHook = IntPtr.Zero;
         private bool Listen { get; set; } = false;
@@ -102,39 +212,32 @@ namespace unvell.ReoGrid.Data
         public DataProvider()
         {
             var toggle = new ToggleButton();
-            Trigger = new WeakReference<ToggleButton>(toggle);
             WeakEventManager<ToggleButton, RoutedEventArgs>.AddHandler(toggle, "Checked", new EventHandler<RoutedEventArgs>(Trigger_Checked));
             WeakEventManager<ToggleButton, RoutedEventArgs>.AddHandler(toggle, "Unchecked", new EventHandler<RoutedEventArgs>(Trigger_Unchecked));
-            //toggle.Checked += Toggle_Checked;
-            //toggle.Unchecked += Trigger_Unchecked;
             var selector = new Popup();
-            Selector = new WeakReference<Popup>(selector);
             WeakEventManager<Popup, EventArgs>.AddHandler(selector, "Opened", new EventHandler<EventArgs>(Selector_Opened));
             WeakEventManager<Popup, EventArgs>.AddHandler(selector, "Closed", new EventHandler<EventArgs>(Selector_Closed));
-            
             WeakEventManager<Popup, RoutedEventArgs>.AddHandler(selector, "Loaded", new EventHandler<RoutedEventArgs>(Selector_Loaded));
             WeakEventManager<Popup, RoutedEventArgs>.AddHandler(selector, "Unloaded", new EventHandler<RoutedEventArgs>(Selector_Unloaded));
             selector.Child = new System.Windows.Controls.ListBox();
             SelectionChangedEventHandler = new EventHandler<SelectionChangedEventArgs>(DataProviderSelector_SelectionChanged);
-            string xamlpath = "pack://application:,,,/unvell.ReoGrid;component/Data/ComboToggle.xaml";
+            string xamlpath = "pack://application:,,,/unvell.ReoGrid;component/Data/DataProvider.Toggle.Style.xaml";
             System.Windows.Resources.StreamResourceInfo xamlinfo = System.Windows.Application.GetResourceStream(new Uri(xamlpath));
-            //StreamReader reader = new StreamReader(xamlinfo.Stream, System.Text.Encoding.ASCII);
-            
-            //string xaml = reader.ReadToEnd();
-            ResourceDictionary Parse_Resource = System.Windows.Markup.XamlReader.Load(xamlinfo.Stream) as ResourceDictionary;
-            toggle.Resources = Parse_Resource;
+            ResourceDictionary styleresouces = System.Windows.Markup.XamlReader.Load(xamlinfo.Stream) as ResourceDictionary;
+            toggle.Resources = styleresouces;
+            Trigger = new WeakReference<ToggleButton>(toggle);
+            Selector = new WeakReference<Popup>(selector);
             _HookProc = OnMouseHook;
         }
 
         private void Selector_Loaded(object sender, RoutedEventArgs e)
         {
-            //Hook();
         }
 
         public void OnHide()
         {
             Unhook();
-            if (Selector.TryGetTarget(out var selector) && selector.IsOpen == true)
+            if (Selector.TryGetTarget(out var selector) && selector != null && selector.IsOpen == true)
             {
                 selector.IsOpen = false;
             }
@@ -142,31 +245,26 @@ namespace unvell.ReoGrid.Data
         }
         public void OnShow()
         {
-            //Hook();
         }
 
         public void OnDestory()
         {
             OnHide();
-            if (Trigger.TryGetTarget(out ToggleButton trigger))
+            if (Trigger.TryGetTarget(out ToggleButton trigger) && trigger != null)
             {
-                Canvas canvas = trigger.Parent as Canvas;
-                if (canvas != null && canvas.Children.Contains(trigger))
-                {
-                    canvas.Children.Remove(trigger);
-                }
-                Trigger.SetTarget(null);
+                trigger.Visibility = Visibility.Collapsed;
+                trigger.RemoveFromParent(out _, out _);
             }
-            if(Selector.TryGetTarget(out Popup popup))
+            if (Selector.TryGetTarget(out Popup selector) && selector != null)
             {
-                Canvas canvas = popup.Parent as Canvas;
-                if (canvas != null && canvas.Children.Contains(popup))
-                {
-                    canvas.Children.Remove(popup);
-                }
-                Selector.SetTarget(null);
+                selector.Visibility = Visibility.Collapsed;
+                selector.RemoveFromParent(out _, out _);
             }
             Unhook();
+            ActiveCell.SetTarget(null);
+            Trigger.SetTarget(null);
+            Selector.SetTarget(null);
+            GC.Collect();
         }
 
         private void Hook()
@@ -178,15 +276,11 @@ namespace unvell.ReoGrid.Data
                 //   下面代码在 .NET Core 3.x 以上可正常工作，在 .NET Framework 4.0 以下可正常工作。
                 //   如果不满足此条件，你也可能可以正常工作，详情请阅读本文后续内容。
                 // var hModule = Marshal.GetHINSTANCE(Assembly.GetExecutingAssembly().GetModules()[0]);
-                _hMouseHook = SetWindowsHookEx(
-                    HookType.WH_MOUSE_LL,
-                    _HookProc,
-                    hModule,
-                    0);
+                _hMouseHook = SetWindowsHookEx(HookType.WH_MOUSE_LL, _HookProc, hModule, 0);
                 if (_hMouseHook == IntPtr.Zero)
                 {
-                    int errorCode = System.Runtime.InteropServices.Marshal.GetLastWin32Error();
-                    throw new System.ComponentModel.Win32Exception(errorCode);
+                    int errorcode = System.Runtime.InteropServices.Marshal.GetLastWin32Error();
+                    throw new System.ComponentModel.Win32Exception(errorcode);
                 }
                 hooked = true;
             }
@@ -218,19 +312,12 @@ namespace unvell.ReoGrid.Data
                     case WM_LBUTTONDOWN:
                     case WM_RBUTTONDOWN:
                     case WM_MBUTTONDOWN:
+                        if (Selector.TryGetTarget(out var selector) && selector != null && selector.IsOpen == true)
                         {
-                            if (Selector.TryGetTarget(out var selector) && selector.IsOpen == true)
+                            if (!selector.IsMouseOver)
                             {
-                                //MOUSELLHookStruct mouseHookStruct = (MOUSELLHookStruct)System.Runtime.InteropServices.Marshal.PtrToStructure(lParam, typeof(MOUSELLHookStruct));
-                                if (!selector.IsMouseOver)
-                                //var point = selector.PointFromScreen(new System.Windows.Point(mouseHookStruct.Point.X, mouseHookStruct.Point.Y));
-                                ////point = new System.Windows.Point(mouseHookStruct.Point.X, mouseHookStruct.Point.Y);
-                                //var result = System.Windows.Media.VisualTreeHelper.HitTest(selector, point);
-                                //if (result == null && result.VisualHit == null)
-                                {
-                                    selector.IsOpen = false;
-                                    return CallNextHookEx(new IntPtr(0), nCode, wParam, lParam);
-                                }
+                                selector.IsOpen = false;
+                                return CallNextHookEx(new IntPtr(0), nCode, wParam, lParam);
                             }
                         }
                         break;
@@ -245,36 +332,36 @@ namespace unvell.ReoGrid.Data
         {
             get
             {
-                if (Selector.TryGetTarget(out var selector))
+                if (Selector.TryGetTarget(out var selector) && selector != null)
                     return (selector.Child as System.Windows.Controls.ListBox).ItemsSource;
                 else
                     return null;
             }
             set
             {
-                if (Selector.TryGetTarget(out var selector))
-                    (selector.Child as System.Windows.Controls.ListBox).ItemsSource=value;
+                if (Selector.TryGetTarget(out var selector) && selector != null)
+                    (selector.Child as System.Windows.Controls.ListBox).ItemsSource = value;
             }
         }
         public object SelectedItem
         {
             get
             {
-                if (Selector.TryGetTarget(out var selector))
+                if (Selector.TryGetTarget(out var selector) && selector != null)
                     return (selector.Child as System.Windows.Controls.ListBox).SelectedItem;
                 else
                     return null;
             }
             set
             {
-                if (Selector.TryGetTarget(out var selector))
+                if (Selector.TryGetTarget(out var selector) && selector != null)
                     (selector.Child as System.Windows.Controls.ListBox).SelectedItem = value;
             }
         }
         private EventHandler<SelectionChangedEventArgs> SelectionChangedEventHandler;
         private void Selector_Opened(object sender, EventArgs e)
         {
-            if (Selector.TryGetTarget(out var selector))
+            if (Selector.TryGetTarget(out var selector) && selector != null)
             {
                 var listbox = (selector.Child as ListBox);
                 WeakEventManager<ListBox, SelectionChangedEventArgs>.AddHandler(listbox, "SelectionChanged", SelectionChangedEventHandler);
@@ -285,7 +372,7 @@ namespace unvell.ReoGrid.Data
 
         private void DataProviderSelector_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
         {
-            if (Selector.TryGetTarget(out var selector))
+            if (Selector.TryGetTarget(out var selector) && selector != null)
             {
                 var listbox = (selector.Child as ListBox);
                 WeakEventManager<ListBox, SelectionChangedEventArgs>.RemoveHandler(listbox, "SelectionChanged", SelectionChangedEventHandler);
@@ -295,9 +382,9 @@ namespace unvell.ReoGrid.Data
 
         private void Selector_Closed(object sender, EventArgs e)
         {
-            if (Trigger.TryGetTarget(out var toggle))
+            if (Trigger.TryGetTarget(out var trigger))
             {
-                toggle.IsChecked = false;
+                trigger.IsChecked = false;
                 ActiveCell.TryGetTarget(out var cell);
                 if (Selector.TryGetTarget(out var selector))
                     SelectorClosed?.Invoke(this, new SelectorClosedEventArgs(cell, (selector.Child as System.Windows.Controls.ListBox).SelectedItem));
@@ -306,10 +393,10 @@ namespace unvell.ReoGrid.Data
             Unhook();
         }
 
-        public WeakReference<Cell> ActiveCell { get; private set; }
+        
         internal void Update(Rectangle rectangle, Cell cell)
         {
-            if(Selector.TryGetTarget(out var selector))
+            if(Selector.TryGetTarget(out var selector) && selector != null)
             {
                 selector.MinWidth = rectangle.Width;
                 selector.Placement = PlacementMode.AbsolutePoint;
@@ -319,10 +406,9 @@ namespace unvell.ReoGrid.Data
             
             ActiveCell = new WeakReference<Cell>(cell);
         }
-        private Action<object> Callback;
         private void Trigger_Unchecked(object sender, System.Windows.RoutedEventArgs e)
         {
-            if (Selector.TryGetTarget(out var selector))
+            if (Selector.TryGetTarget(out var selector) && selector != null)
                 selector.IsOpen = false;
         }
 
@@ -340,9 +426,5 @@ namespace unvell.ReoGrid.Data
         {
             Unhook();
         }
-
-        public WeakReference<ToggleButton> Trigger { get; private set; }
-        public WeakReference<Popup> Selector { get; private set; }
-        public WeakReference<System.Windows.Controls.ListBox> DataProviderSelector { get;private set; }
     }
 }

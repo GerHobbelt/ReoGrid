@@ -622,7 +622,7 @@
     </BootstrapperPackage>
   </ItemGroup>
   <ItemGroup>
-    <Resource Include="Data\ComboToggle.xaml">
+    <Resource Include="Data\DataProvider.Toggle.Style.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </Resource>

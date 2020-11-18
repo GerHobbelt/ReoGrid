@@ -9,23 +9,52 @@ namespace unvell.ReoGrid.Views
 {
     partial class CellsViewport
     {
-		public void RegisterDataProvider(DataProvider provider)
+        public void RegisterDataProvider(DataProvider provider)
         {
             if (DataProviders.Contains(provider))
-				return;
-			if(provider.Trigger.TryGetTarget(out var tigger))
+                return;
+            if (provider.Trigger.TryGetTarget(out var tigger) && tigger != null)
             {
-				sheet.workbook.ControlInstance.Children.Add(tigger);
-				tigger.Visibility = System.Windows.Visibility.Collapsed;
-			}
-            if (provider.Selector.TryGetTarget(out var selector))
+                sheet.workbook.ControlInstance.Children.Add(tigger);
+                tigger.Visibility = System.Windows.Visibility.Collapsed;
+            }
+            if (provider.Selector.TryGetTarget(out var selector) && selector != null)
             {
-				sheet.workbook.ControlInstance.Children.Add(selector);
-			}
-			
-			DataProviders.Add(provider);
-		}
-		public System.Collections.Generic.List<DataProvider> DataProviders { get; set; }
+                sheet.workbook.ControlInstance.Children.Add(selector);
+            }
+
+            DataProviders.Add(provider);
+        }
+        public void UnregisterDataProvider(DataProvider provider)
+        {
+            if (!DataProviders.Contains(provider))
+                return;
+            for (int i = 0; i < sheet.RowCount; i++)
+            {
+                for (int j = 0; j < sheet.ColumnCount; j++)
+                {
+                    Cell cell = sheet.GetCell(i, j);
+                    if (cell == null) continue;
+                    if (cell.DataProvider == provider)
+                        cell.DataProvider = null;
+                }
+            }
+            if (provider.Trigger.TryGetTarget(out var tigger) && tigger != null)
+            {
+                tigger.Visibility = System.Windows.Visibility.Collapsed;
+                if (sheet.workbook.ControlInstance.Children.Contains(tigger))
+                    sheet.workbook.ControlInstance.Children.Remove(tigger);
+            }
+            if (provider.Selector.TryGetTarget(out var selector) && selector != null)
+            {
+                if (sheet.workbook.ControlInstance.Children.Contains(selector))
+                    sheet.workbook.ControlInstance.Children.Remove(selector);
+            }
+
+            DataProviders.Remove(provider);
+        }
+
+        public System.Collections.Generic.List<DataProvider> DataProviders { get; set; }
 			= new System.Collections.Generic.List<DataProvider>();
 		private void DrawDataProvider(CellDrawingContext dc)
 		{
@@ -33,14 +62,14 @@ namespace unvell.ReoGrid.Views
 				return;
             DataProviders.ForEach(x =>
             {
-                if (x.Trigger.TryGetTarget(out var tigger))
+                if (x.Trigger.TryGetTarget(out var trigger) && trigger != null)
                 {
-					tigger.Visibility = System.Windows.Visibility.Collapsed;
+                    trigger.Visibility = System.Windows.Visibility.Collapsed;
                 }
             });
             DataProviders.ForEach(x =>
             {
-                if (x.Selector.TryGetTarget(out var selector))
+                if (x.Selector.TryGetTarget(out var selector) && selector != null)
                 {
                     selector.IsOpen = false;
                 }
@@ -73,7 +102,7 @@ namespace unvell.ReoGrid.Views
                     else
                     {
 						mt.TryTransform(new System.Windows.Point(cell.Left, cell.Bottom), out var leftbottom);
-						if (cell.DataProvider.Trigger.TryGetTarget(out var tigger))
+						if (cell.DataProvider.Trigger.TryGetTarget(out var tigger)&& tigger!=null)
 						{
 							tigger.Height = cell.Height;
 							tigger.Visibility = System.Windows.Visibility.Collapsed;

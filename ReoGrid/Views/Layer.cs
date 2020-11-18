@@ -115,5 +115,15 @@ namespace unvell.ReoGrid
 				return;
 			cvport.RegisterDataProvider(dataprovider);
 		}
+		public void UnregisterDataProvider(DataProvider dataprovider)
+		{
+			SheetViewport stport = (this.viewportController as NormalViewportController).View.Children.FirstOrDefault(x => x is SheetViewport) as SheetViewport;
+			if (stport == null)
+				return;
+			CellsViewport cvport = stport.Children.FirstOrDefault(x => x is CellsViewport) as CellsViewport;
+			if (cvport == null)
+				return;
+			cvport.UnregisterDataProvider(dataprovider);
+		}
 	}
 }
