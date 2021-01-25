@@ -90,12 +90,27 @@ namespace unvell.ReoGrid.Chart
 			};
 		}
 
-		protected override void UpdateAxisLabelViewLayout(Rectangle plotRect)
+		protected override Rectangle GetPlotViewBounds(DrawingContext dc, Rectangle bodyBounds)
 		{
-			const RGFloat spacing = 10;
+			var rect = base.GetPlotViewBounds(dc, bodyBounds);
 
-			this.HorizontalAxisInfoView.Bounds = new Rectangle(this.ClientBounds.X, plotRect.Y - 5, 30, plotRect.Height + 10);
-			this.VerticalAxisInfoView.Bounds = new Rectangle(plotRect.X, plotRect.Bottom + spacing, plotRect.Width, 10);
+			RGFloat extraWidth = 0;
+
+			for (int i = 0; i < DataSource.CategoryCount; i++)
+			{
+				var title = DataSource.GetCategoryName(i);
+
+				if (!string.IsNullOrEmpty(title))
+				{
+					var size = PlatformUtility.MeasureText(dc, title, FontName, FontSize, Drawing.Text.FontStyles.Regular);
+					if (extraWidth < size.Width)
+						extraWidth = size.Width;
+				}
+			}
+
+			extraWidth -= 30; // to compensate for the 30 units set aside by base.GetPlotViewBounds()
+
+			return new Rectangle(rect.X + extraWidth, rect.Y, rect.Width - extraWidth, rect.Height);
 		}
 	}
 
@@ -119,7 +134,7 @@ namespace unvell.ReoGrid.Chart
 		/// <param name="dc">Platform no-associated drawing context instance.</param>
 		protected override void OnPaint(DrawingContext dc)
 		{
-			var clientRect = this.ClientBounds;
+			var clientRect = ClientBounds;
 			var availableHeight = clientRect.Height * 0.7;
 
 			if (availableHeight < 20)
@@ -127,8 +142,7 @@ namespace unvell.ReoGrid.Chart
 				return;
 			}
 
-			var axisChart = base.Chart as AxisChart;
-			if (axisChart == null) return;
+			var axisChart = Chart as AxisChart;
 
 			var ds = Chart.DataSource;
 
@@ -136,37 +150,33 @@ namespace unvell.ReoGrid.Chart
 			var columns = ds.CategoryCount;
 
 			var groupColumnWidth = availableHeight / columns;
-			var groupColumnSpace = ((clientRect.Height - availableHeight) / (columns + 1));
+			var groupColumnSpace = (clientRect.Height - availableHeight) / columns;
 			var singleColumnHeight = groupColumnWidth / rows;
 
 			var ai = axisChart.PrimaryAxisInfo;
+			double scaleX = clientRect.Width / (ai.Maximum - ai.Minimum);
+			var zeroWidth = (RGFloat)(-ai.Minimum * scaleX);
 
-			double y = groupColumnSpace;
+			double y = groupColumnSpace / 2;
 
 			var g = dc.Graphics;
 
 			for (int c = 0; c < columns; c++)
 			{
-				for (int r = 0; r < ds.SerialCount; r++)
+				for (int r = 0; r < rows; r++)
 				{
-					var pt = axisChart.PlotDataPoints[r][c];
-
-					if (pt.hasValue)
+					if (ds[r][c] is double value)
 					{
 						var style = axisChart.DataSerialStyles[r];
-
-						if (pt.value > 0)
-						{
-							g.DrawAndFillRectangle(new Rectangle(
-									axisChart.ZeroWidth, (RGFloat)y,
-									pt.value, (RGFloat)(singleColumnHeight - 1)), style.LineColor, style.FillColor);
-						}
-						else
-						{
-							g.DrawAndFillRectangle(new Rectangle(
-								axisChart.ZeroWidth - pt.value, (RGFloat)y,
-								pt.value, (RGFloat)(singleColumnHeight - 1)), style.LineColor, style.FillColor);
-						}
+						var rect = value > 0 ?
+							new Rectangle(
+								zeroWidth, (RGFloat)y,
+								(RGFloat)(value * scaleX), (RGFloat)(singleColumnHeight - 1)) :
+							new Rectangle(
+								zeroWidth - (RGFloat)value, (RGFloat)y,
+								(RGFloat)(value * scaleX), (RGFloat)(singleColumnHeight - 1));
+						rect.Intersect(clientRect);
+						g.DrawAndFillRectangle(rect, style.LineColor, style.FillColor);
 					}
 
 					y += singleColumnHeight;

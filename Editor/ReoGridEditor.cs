@@ -188,9 +188,20 @@ namespace unvell.ReoGrid.Editor
 			textWrapToolStripButton.Click += textWrapToolStripButton_Click;
 
 			// todo
-			this.grid.ActionPerformed += (s, e) => UpdateMenuAndToolStripsWhenAction(s, e);
-			this.grid.Undid += (s, e) => UpdateMenuAndToolStripsWhenAction(s, e);
-			this.grid.Redid += (s, e) => UpdateMenuAndToolStripsWhenAction(s, e);
+			this.grid.ActionPerformed += (s, e) =>
+			{
+				// TODO: Which actions call for recalculation?
+				if (e.Action as SetColumnsWidthAction == null &&
+					e.Action as SetRowsHeightAction == null &&
+					e.Action as CreateAutoFilterAction == null)
+				{
+					if (grid.HasSettings(WorkbookSettings.Formula_AutoUpdateReferenceCell))
+					{
+						grid.Recalculate();
+					}
+				}
+				UpdateMenuAndToolStripsWhenAction(s, e);
+			};
 
 			rowHeightToolStripMenuItem.Click += (s, e) =>
 			{
@@ -733,10 +744,10 @@ namespace unvell.ReoGrid.Editor
 				WorksheetSettings.Edit_DragSelectionToFillSerial, this.dragToFillSerialToolStripMenuItem.Checked);
 
 			this.suspendReferenceUpdatingToolStripMenuItem.CheckedChanged += (s, e) =>
-				this.CurrentWorksheet.SetSettings(WorksheetSettings.Formula_AutoUpdateReferenceCell,
+				this.grid.SetSettings(WorkbookSettings.Formula_AutoUpdateReferenceCell,
 				!this.suspendReferenceUpdatingToolStripMenuItem.Checked);
 
-			this.recalculateWorksheetToolStripMenuItem.Click += (s, e) => this.CurrentWorksheet.Recalculate();
+			this.recalculateWorksheetToolStripMenuItem.Click += (s, e) => this.GridControl.Recalculate();
 
 #if RG_DEBUG
 
@@ -848,7 +859,7 @@ namespace unvell.ReoGrid.Editor
 			check = sheet.HasSettings(WorksheetSettings.Edit_DragSelectionToFillSerial);
 			if (this.dragToFillSerialToolStripMenuItem.Checked != check) this.dragToFillSerialToolStripMenuItem.Checked = check;
 
-			check = !sheet.HasSettings(WorksheetSettings.Formula_AutoUpdateReferenceCell);
+			check = !grid.HasSettings(WorkbookSettings.Formula_AutoUpdateReferenceCell);
 			if (this.suspendReferenceUpdatingToolStripMenuItem.Checked != check) this.suspendReferenceUpdatingToolStripMenuItem.Checked = check;
 
 			sheetReadonlyToolStripMenuItem.Checked = sheet.HasSettings(WorksheetSettings.Edit_Readonly);
@@ -863,7 +874,8 @@ namespace unvell.ReoGrid.Editor
 			{
 				worksheet.IterateCells(worksheet.SelectionRange, false, (r, c, cell) =>
 				{
-					cell.Body = null;
+					if (cell != null)
+						cell.Body = null;
 					return true;
 				});
 			}
@@ -2222,19 +2234,11 @@ namespace unvell.ReoGrid.Editor
 		#region Style
 		private void backColorPickerToolStripButton_ColorPicked(object sender, EventArgs e)
 		{
-			//Color c = backColorPickerToolStripButton.SolidColor;
-			//if (c.IsEmpty)
-			//{
-			//  workbook.DoAction(new SGRemoveRangeStyleAction(workbook.SelectionRange, PlainStyleFlag.FillColor));
-			//}
-			//else
-			//{
 			this.grid.DoAction(new SetRangeStyleAction(this.CurrentWorksheet.SelectionRange, new WorksheetRangeStyle()
 			{
 				Flag = PlainStyleFlag.BackColor,
 				BackColor = backColorPickerToolStripButton.SolidColor,
 			}));
-			//}
 		}
 
 		private void textColorPickToolStripItem_ColorPicked(object sender, EventArgs e)

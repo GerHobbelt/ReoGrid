@@ -38,16 +38,6 @@ namespace unvell.ReoGrid
 		//private ReoGridRange range = ReoGridRange.Empty;
 
 		/// <summary>
-		/// Get range position.
-		/// </summary>
-		[Obsolete("use property Position instead")]
-		public RangePosition Range
-		{
-			get { return this.Position; }
-			//set { range = value; }
-		}
-
-		/// <summary>
 		/// Get or set start position.
 		/// </summary>
 		public CellPosition StartPos
@@ -86,17 +76,7 @@ namespace unvell.ReoGrid
 		/// <summary>
 		/// Zero-based number of column to locate the start position of this range.
 		/// </summary>
-		[Obsolete("use Column instead")]
 		public int Col
-		{
-			get { return this.startCell.Column; }
-			set { this.Column = value; }
-		}
-
-		/// <summary>
-		/// Zero-based number of column to locate the start position of this range.
-		/// </summary>
-		public int Column
 		{
 			get { return this.startCell.Column; }
 			set
@@ -144,17 +124,7 @@ namespace unvell.ReoGrid
 		/// <summary>
 		/// Get or set end number of column.
 		/// </summary>
-		[Obsolete("use EndColumn instead")]
 		public int EndCol
-		{
-			get { return this.endCell.Column; }
-			set { this.EndColumn = value; }
-		}
-
-		/// <summary>
-		/// Get or set end number of column.
-		/// </summary>
-		public int EndColumn
 		{
 			get { return this.endCell.Column; }
 			set
@@ -179,7 +149,7 @@ namespace unvell.ReoGrid
 		}
 
 		#region Constructors
-		internal ReferenceRange(Worksheet worksheet, Cell startCell, Cell endCell)
+		public ReferenceRange(Worksheet worksheet, Cell startCell, Cell endCell)
 		{
 			if (worksheet == null)
 			{
@@ -191,24 +161,24 @@ namespace unvell.ReoGrid
 			this.endCell = endCell;
 		}
 
-		internal ReferenceRange(Worksheet worksheet, CellPosition startPos, CellPosition endPos)
+		public ReferenceRange(Worksheet worksheet, CellPosition startPos, CellPosition endPos)
 			: this(worksheet, worksheet.CreateAndGetCell(startPos), worksheet.CreateAndGetCell(endPos))
 		{
 		}
 
-		internal ReferenceRange(Worksheet worksheet, string address)
+		public ReferenceRange(Worksheet worksheet, string address)
 			: this(worksheet, new RangePosition(address))
 		{
 			// construct from address identifier
 		}
 
-		internal ReferenceRange(Worksheet worksheet, RangePosition range)
+		public ReferenceRange(Worksheet worksheet, RangePosition range)
 			: this(worksheet, worksheet.CreateAndGetCell(range.StartPos), worksheet.CreateAndGetCell(range.EndPos))
 		{
 			// construct from range position
 		}
 
-		internal ReferenceRange(Worksheet worksheet, CellPosition pos)
+		public ReferenceRange(Worksheet worksheet, CellPosition pos)
 			: this(worksheet, pos, pos)
 		{
 			// construct from single cell position
@@ -614,7 +584,7 @@ namespace unvell.ReoGrid
 		{
 			CheckForOwnerAssociated();
 
-			this.Worksheet.GroupColumns(this.Column, this.Cols);
+			this.Worksheet.GroupColumns(this.Col, this.Cols);
 		}
 
 		/// <summary>

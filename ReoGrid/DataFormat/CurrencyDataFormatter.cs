@@ -17,11 +17,8 @@
  ****************************************************************************/
 
 using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
+using System.Globalization;
 using unvell.ReoGrid.Core;
-using unvell.ReoGrid.DataFormat;
 using unvell.ReoGrid.Graphics;
 
 namespace unvell.ReoGrid.DataFormat
@@ -34,9 +31,10 @@ namespace unvell.ReoGrid.DataFormat
 		/// <summary>
 		/// Format specified cell
 		/// </summary>
-		/// <param name="cell">cell instance</param>
-		/// <returns>true if cell has been formatted</returns>
-		public string FormatCell(Cell cell)
+		/// <param name="cell">cell to be formatted</param>
+		/// <param name="culture">culture for parsing</param>
+		/// <returns>Formatted text used to display as cell content</returns>
+		public string FormatCell(Cell cell, CultureInfo culture)
 		{
 			bool isFormat = false;
 
@@ -48,39 +46,48 @@ namespace unvell.ReoGrid.DataFormat
 				isFormat = true;
 				currency = (double)data;
 			}
-			else if (data is DateTime)
+			else if (data is DateTime dt)
 			{
-				currency = (new DateTime(1900, 1, 1) - (DateTime)data).TotalDays;
+				currency = dt.ToOADate();
 				isFormat = true;
 			}
 			else
 			{
 				string str = Convert.ToString(data).Trim();
-				string number = string.Empty;
 
 				if (str.StartsWith("$"))
 				{
-					number = str.Substring(1);
-					if (double.TryParse(number, out currency))
+					string number = str.Substring(1);
+					if (double.TryParse(number, NumberStyles.Any, culture, out currency))
 					{
 						isFormat = true;
 						cell.InnerData = currency;
+						var args = new CurrencyFormatArgs()
+						{
+							DecimalPlaces = 2
+						};
+						switch (culture.NumberFormat.CurrencyPositivePattern)
+						{
+							case 0:
+								args.PrefixSymbol = culture.NumberFormat.CurrencySymbol;
+								break;
+							case 1:
+								args.PostfixSymbol = culture.NumberFormat.CurrencySymbol;
+								break;
+							case 2:
+								args.PrefixSymbol = " " + culture.NumberFormat.CurrencySymbol;
+								break;
+							case 3:
+								args.PostfixSymbol = " " + culture.NumberFormat.CurrencySymbol;
+								break;
+						}
+						cell.DataFormatArgs = args;
 					}
 				}
 				else
 				{
 					// Stop trying to convert datetime value to currency, #170
-					//
-					//DateTime date = new DateTime(1900, 1, 1);
-					//if (DateTime.TryParse(str, out date))
-					//{
-					//	currency = (date - new DateTime(1900, 1, 1)).TotalDays;
-					//	isFormat = true;
-					//}
-					//else
-					//{
-					isFormat = double.TryParse(str, out currency);
-					//}
+					isFormat = double.TryParse(str, NumberStyles.Any, culture, out currency);
 				}
 			}
 
@@ -91,15 +98,15 @@ namespace unvell.ReoGrid.DataFormat
 					cell.RenderHorAlign = ReoGridRenderHorAlign.Right;
 				}
 
-				string prefixSymbol = null, postfixSymbol = null;
+				string prefixSymbol = null;
+				string postfixSymbol = null;
 				short decimals = 2;
 				NumberDataFormatter.NumberNegativeStyle negativeStyle = NumberDataFormatter.NumberNegativeStyle.Default;
 				string prefix = null;
 				string postfix = null;
 
-				if (cell.DataFormatArgs != null && cell.DataFormatArgs is CurrencyFormatArgs)
+				if (cell.DataFormatArgs is CurrencyFormatArgs args)
 				{
-					CurrencyFormatArgs args = (CurrencyFormatArgs)cell.DataFormatArgs;
 					prefixSymbol = args.PrefixSymbol;
 					postfixSymbol = args.PostfixSymbol;
 					decimals = args.DecimalPlaces;
@@ -107,20 +114,6 @@ namespace unvell.ReoGrid.DataFormat
 					prefix = args.CustomNegativePrefix;
 					postfix = args.CustomNegativePostfix;
 				}
-				//else
-				//{
-				//	var culture = Thread.CurrentThread.CurrentCulture;
-
-				//	switch (culture.NumberFormat.CurrencyPositivePattern)
-				//	{
-				//		case 0: prefixSymbol = culture.NumberFormat.CurrencySymbol; postfixSymbol = null; break;
-				//		case 1: prefixSymbol = null; postfixSymbol = culture.NumberFormat.CurrencySymbol; break;
-				//		case 2: prefixSymbol = " " + culture.NumberFormat.CurrencySymbol; postfixSymbol = null; break;
-				//		case 3: prefixSymbol = null; postfixSymbol = " " + culture.NumberFormat.CurrencySymbol; break;
-				//	}
-
-				//	cell.DataFormatArgs = new CurrencyFormatArgs { PrefixSymbol = prefixSymbol, PostfixSymbol = postfixSymbol, DecimalPlaces = decimals };
-				//}
 
 				if (currency < 0)
 				{
@@ -181,6 +174,11 @@ namespace unvell.ReoGrid.DataFormat
 			/// Culture name in English. (e.g. en-US)
 			/// </summary>
 			public string CultureEnglishName { get; set; }
+
+			/// <summary>
+			/// Locale ID
+			/// </summary>
+			public int LCID => CultureInfo.GetCultureInfo(CultureEnglishName).LCID;
 
 			/// <summary>
 			/// Check whether or not two objects are same.

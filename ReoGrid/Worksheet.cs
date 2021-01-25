@@ -61,6 +61,8 @@ using RGKeys = System.Windows.Forms.Keys;
 using unvell.ReoGrid.Graphics;
 using unvell.ReoGrid.Interaction;
 using unvell.ReoGrid.Main;
+using System.Globalization;
+using System.Threading;
 
 namespace unvell.ReoGrid
 {
@@ -93,6 +95,8 @@ namespace unvell.ReoGrid
 			}
 		}
 		#endregion // ControlAdapter
+
+		public CultureInfo Culture { get; set; } = Thread.CurrentThread.CurrentCulture;
 
 		#region Constants
 		/// <summary>
@@ -643,6 +647,16 @@ namespace unvell.ReoGrid
 			{
 				this._scaleFactor = factor;
 
+				for (int r = 0; r < rows.Count; r++)
+				{
+					for (int c = 0; c < cols.Count; c++)
+					{
+						var cell = cells[r, c];
+						if (cell != null)
+							cell.FontDirty = true;
+					}
+				}
+
 				if (this.controlAdapter == null)
 				{
 					this.renderScaleFactor = this._scaleFactor;
@@ -886,7 +900,6 @@ namespace unvell.ReoGrid
 				InternalCol = col,
 				Colspan = 1,
 				Rowspan = 1,
-				Bounds = GetGridBounds(row, col),
 			};
 
 			StyleUtility.UpdateCellParentStyle(this, cell);
@@ -932,9 +945,6 @@ namespace unvell.ReoGrid
 			{
 				// update render align
 				StyleUtility.UpdateCellRenderAlign(this, cell);
-
-				// update font of cell
-				UpdateCellFont(cell);
 			}
 
 			return cell;
@@ -1512,7 +1522,7 @@ namespace unvell.ReoGrid
 		internal RGFloat headerAdjustNewValue = 0;
 
 		internal Point lastMouseMoving = new Point(-1, -1);
-		internal RangePosition lastChangedSelectionRange = RangePosition.Empty;
+		//internal RangePosition lastChangedSelectionRange = RangePosition.Empty;
 		internal RangePosition draggingSelectionRange = RangePosition.Empty;
 		internal CellPosition focusMovingRangeOffset = CellPosition.Empty;
 
@@ -1940,12 +1950,11 @@ namespace unvell.ReoGrid
 						break;
 
 					case KeyCode.Delete:
-						if (this.controlAdapter != null && !HasSettings(WorksheetSettings.Edit_Readonly))
+						if (controlAdapter != null && !HasSettings(WorksheetSettings.Edit_Readonly))
 						{
-							var actionSupportedControl = this.controlAdapter.ControlInstance as IActionControl;
-							if (actionSupportedControl != null)
+							if (controlAdapter.ControlInstance is IActionControl actionSupportedControl)
 							{
-								actionSupportedControl.DoAction(this, new RemoveRangeDataAction(this.selectionRange));
+								actionSupportedControl.DoAction(this, new RemoveRangeDataAction(selectionRange));
 							}
 						}
 						break;
@@ -2031,12 +2040,7 @@ namespace unvell.ReoGrid
 			}
 #endif
 
-			if (!this.selStart.IsEmpty &&
-				// if there is request to cancel notify to cell body about this KeyUp event
-				// do not pass key up to cell body.
-				// sometimes this raised when an Escape key is received to cancel editing.
-				// see KeyDown event of EditTextBox.
-				!DropKeyUpAfterEndEdit)
+			if (!this.selStart.IsEmpty)
 			{
 				var cell = cells[this.selStart.Row, this.selStart.Col];
 				if (cell != null && cell.body != null)
@@ -2045,9 +2049,6 @@ namespace unvell.ReoGrid
 					if (processed) this.RequestInvalidate();
 				}
 			}
-
-			// ignore to pass KeyUp to cell body only once
-			DropKeyUpAfterEndEdit = false;
 
 			this.CellKeyUp?.Invoke(this, new CellKeyDownEventArgs
 			{
@@ -2058,13 +2059,6 @@ namespace unvell.ReoGrid
 
 			return true;
 		}
-
-		/// <summary>
-		/// Sometimes when in editing mode, the Escape key used to cancel editing,
-		/// The keyUp event of Escape to cancel editing should be ignored to pass to cell body.
-		/// When this flag is true, the KeyUp event notify to the cell body will be ignored once.
-		/// </summary>
-		internal bool DropKeyUpAfterEndEdit { get; set; }
 
 		/// <summary>
 		/// Event raised before key pressed down on spreadsheet
@@ -2099,6 +2093,38 @@ namespace unvell.ReoGrid
 			}
 		}
 
+		/// <summary>
+		/// Expand rows and columns to content.
+		/// </summary>
+		internal void ExpandToContent()
+		{
+			var entireRange = new RangePosition(0, 0, MaxContentRow + 1, MaxContentCol + 1);
+
+			IterateCells(entireRange, (row, col, cell) =>
+			{
+				if (settings.Has(WorksheetSettings.Edit_AutoExpandRowHeight))
+				{
+					var rowHeader = rows[cell.Row];
+
+					if (rowHeader.IsVisible && rowHeader.IsAutoHeight)
+					{
+						ExpandRowHeightToFitCell(cell);
+					}
+				}
+
+				if (settings.Has(WorksheetSettings.Edit_AutoExpandColumnWidth))
+				{
+					var colHeader = cols[cell.Column];
+
+					if (colHeader.IsVisible && colHeader.IsAutoWidth)
+					{
+						ExpandColumnWidthFitToCell(cell);
+					}
+				}
+
+				return true;
+			});
+		}
 		#endregion // Internal Utilites
 
 		#region Pick Range & Style Brush

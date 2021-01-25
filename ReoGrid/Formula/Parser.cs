@@ -21,6 +21,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
+using unvell.ReoGrid.IO.OpenXML;
 
 namespace unvell.ReoGrid.Formula
 {
@@ -51,16 +52,8 @@ namespace unvell.ReoGrid.Formula
 			return node;
 		}
 
-		private static string ParameterSeparator = ",";
+		private const string ParameterSeparator = ",";
 
-		static Parser()
-		{
-			try
-			{
-				ParameterSeparator = System.Threading.Thread.CurrentThread.CurrentCulture.TextInfo.ListSeparator;
-			}
-			catch { }
-		}
 		#endregion // Parser API
 
 		#region Parsers
@@ -260,6 +253,7 @@ namespace unvell.ReoGrid.Formula
 
 		private static STNode ReadFunctionCall(ExcelFormulaLexer lexer)
 		{
+			do; while (lexer.SkipToken("+"));
 			var id = ReadSheetName(lexer);
 			if (id == null) return null;
 
@@ -339,6 +333,8 @@ namespace unvell.ReoGrid.Formula
 				}
 
 				var sheetName = ((STIdentifierNode)node).Identifier;
+				if (sheetName.StartsWith("'") && sheetName.EndsWith("'"))
+					sheetName = sheetName.Substring(1, sheetName.Length - 2).Replace("''", "'");
 
 				IWorkbook workbook = lexer.Workbook;
 
@@ -479,7 +475,8 @@ namespace unvell.ReoGrid.Formula
 				case STNodeType.NUMBER:
 					string text = lexer.Input.Substring(start, len);
 					double v = 0;
-					return double.TryParse(text, out v) ? new STNumberNode(v, start, len) : null;
+					return double.TryParse(text, System.Globalization.NumberStyles.Number,
+						ExcelWriter.EnglishCulture, out v) ? new STNumberNode(v, start, len) : null;
 
 				case STNodeType.IDENTIFIER:
 					return new STIdentifierNode(lexer.Cell == null ? null : lexer.Cell.Worksheet, lexer.Input.Substring(start, len), start, len);
@@ -528,10 +525,9 @@ namespace unvell.ReoGrid.Formula
 			"\\s*((?<string>\"(?:\"\"|[^\"])*\")|(?<union_ranges>[A-Z]+[0-9]+:[A-Z]+[0-9]+(\\s[A-Z]+[0-9]+:[A-Z]+[0-9]+)+)"
 			+ "|(?<range>\\$?[A-Z]+\\$?[0-9]*:\\$?[A-Z]+\\$?[0-9]*)"
 			+ "|(?<cell>\\$?[A-Z]+\\$?[0-9]+)"
-			+ "|(?<token>-)|(?<number>\\-?\\d*\\"
-			+ System.Threading.Thread.CurrentThread.CurrentCulture.NumberFormat.NumberDecimalSeparator + "?\\d+)"
-			+ "|(?<true>(?i)TRUE)|(?<false>(?i)FALSE)|(?<identifier>\\w+)"
-			+ "|(?<token>\\=\\=|\\<\\>|\\<\\=|\\>\\=|\\<\\>|\\=|\\!|[\\=\\.\\,\\+\\-\\*\\/\\%\\<\\>\\(\\)\\&\\^]))",
+			+ "|(?<token>[\\-\\+])|(?<number>\\-?\\d*\\.?\\d+)"
+			+ "|(?<true>(?i)TRUE)|(?<false>(?i)FALSE)|(?<identifier>\\w+|'(?:''|[^'])*')"
+			+ "|(?<token>\\=\\=|\\<\\>|\\<\\=|\\>\\=|\\<\\>|[\\=\\!\\.\\,\\+\\-\\*\\/\\%\\<\\>\\(\\)\\&\\^]))",
 			RegexOptions.Compiled);
 
 		public string Input { get; set; }

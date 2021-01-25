@@ -141,44 +141,40 @@ namespace unvell.ReoGrid.Chart
 			var rows = ds.SerialCount;
 			var columns = ds.CategoryCount;
 
-			var roundColumnWidth = availableWidth / columns;
-			var roundColumnSpace = ((clientRect.Width - availableWidth) / (columns + 1));
-			var singleColumnWidth = roundColumnWidth / rows;
+			var groupColumnWidth = availableWidth / columns;
+			var groupColumnSpace = (clientRect.Width - availableWidth) / columns;
+			var singleColumnWidth = groupColumnWidth / rows;
 
 			var ai = axisChart.PrimaryAxisInfo;
+			double scaleY = clientRect.Height / (ai.Maximum - ai.Minimum);
+			var zeroHeight = (RGFloat)(ai.Minimum * scaleY + clientRect.Height);
 
-			double x = roundColumnSpace;
+			double x = groupColumnSpace / 2;
 
 			var g = dc.Graphics;
 
 			for (int c = 0; c < columns; c++)
 			{
-				for (int r = 0; r < ds.SerialCount; r++)
+				for (int r = 0; r < rows; r++)
 				{
-					var pt = axisChart.PlotDataPoints[r][c];
-
-					if (pt.hasValue)
+					if (ds[r][c] is double value)
 					{
 						var style = axisChart.DataSerialStyles[r];
-
-						if (pt.value > 0)
-						{
-							g.DrawAndFillRectangle(new Rectangle(
-									(RGFloat)x, axisChart.ZeroHeight - pt.value,
-									(RGFloat)(singleColumnWidth - 1), pt.value), style.LineColor, style.FillColor);
-						}
-						else
-						{
-							g.DrawAndFillRectangle(new Rectangle(
-								(RGFloat)x, axisChart.ZeroHeight,
-								(RGFloat)(singleColumnWidth - 1), -pt.value), style.LineColor, style.FillColor);
-						}
+						var rect = value > 0 ?
+							new Rectangle(
+								(RGFloat)x, (RGFloat)(zeroHeight - value * scaleY),
+								(RGFloat)(singleColumnWidth - 1), (RGFloat)(value * scaleY)) :
+							new Rectangle(
+								(RGFloat)x, zeroHeight,
+								(RGFloat)(singleColumnWidth - 1), (RGFloat)(-value * scaleY));
+						rect.Intersect(clientRect);
+						g.DrawAndFillRectangle(rect, style.LineColor, style.FillColor);
 					}
 
 					x += singleColumnWidth;
 				}
 
-				x += roundColumnSpace;
+				x += groupColumnSpace;
 			}
 		}
 	}

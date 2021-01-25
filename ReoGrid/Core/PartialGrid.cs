@@ -57,6 +57,11 @@ namespace unvell.ReoGrid
 		All = CellAll | BorderAll,
 
 		/// <summary>
+		/// Cell content will be processed (CellData | CellFormula | CellFormat)
+		/// </summary>
+		CellContent = CellData | CellFormula | CellFormat,
+
+		/// <summary>
 		/// Cell value and cell styles will be processed (CellData | CellFormula | CellFormat | CellStyle)
 		/// </summary>
 		CellAll = CellData | CellFormula | CellFormat | CellStyle,
@@ -69,7 +74,7 @@ namespace unvell.ReoGrid
 		/// <summary>
 		/// Copy cells formula.
 		/// </summary>
-		CellFormula = 0x4,
+		CellFormula = 0x2,
 
 		/// <summary>
 		/// Copy cells data format.
@@ -140,12 +145,7 @@ namespace unvell.ReoGrid
 		}
 
 		private CellArray cells;
-#if DEBUG
-		public
-#else
-		internal
-#endif
-		CellArray Cells
+		public CellArray Cells
 		{
 			get { return cells; }
 			set { cells = value; }
@@ -342,19 +342,6 @@ namespace unvell.ReoGrid
 		}
 
 		/// <summary>
-		/// Copy a part of worksheet from specified range that identified by address value.
-		/// </summary>
-		/// <param name="row">Number of start row.</param>
-		/// <param name="col">Number of start col.</param>
-		/// <param name="rows">Number of rows to be copied.</param>
-		/// <param name="cols">Number of columns to be copied.</param>
-		/// <returns>A part of worksheet that is copied from original worksheet.</returns>
-		public PartialGrid GetPartialGrid(int row, int col, int rows, int cols)
-		{
-			return GetPartialGrid(new RangePosition(row, col, rows, cols));
-		}
-
-		/// <summary>
 		/// Copy a part of worksheet from specified range.
 		/// </summary>
 		/// <param name="range">The range to be copied.</param>
@@ -364,19 +351,9 @@ namespace unvell.ReoGrid
 			return GetPartialGrid(range, PartialGridCopyFlag.All, ExPartialGridCopyFlag.BorderOutsideOwner);
 		}
 
-		internal PartialGrid GetPartialGrid(RangePosition range, PartialGridCopyFlag flag, ExPartialGridCopyFlag exFlag,
-			bool checkIntersectedRange = false)
+		internal PartialGrid GetPartialGrid(RangePosition range, PartialGridCopyFlag flag, ExPartialGridCopyFlag exFlag = ExPartialGridCopyFlag.None)
 		{
 			range = FixRange(range);
-
-			if (checkIntersectedRange)
-			{
-				var intersectedRange = CheckIntersectedMergingRange(range);
-				if (intersectedRange != RangePosition.Empty)
-				{
-					throw new RangeIntersectionException(intersectedRange);
-				}
-			}
 
 			int rows = range.Rows;
 			int cols = range.Cols;
@@ -387,8 +364,7 @@ namespace unvell.ReoGrid
 				Rows = rows,
 			};
 
-			if ((flag & PartialGridCopyFlag.CellData) == PartialGridCopyFlag.CellData
-				|| (flag & PartialGridCopyFlag.CellStyle) == PartialGridCopyFlag.CellStyle)
+			if ((flag & (PartialGridCopyFlag.CellData | PartialGridCopyFlag.CellStyle)) != 0)
 			{
 				data.Cells = new CellArray();
 
@@ -441,23 +417,23 @@ namespace unvell.ReoGrid
 				}
 			}
 
-			if ((flag & PartialGridCopyFlag.HBorder) == PartialGridCopyFlag.HBorder)
+			if (flag.HasFlag(PartialGridCopyFlag.HBorder))
 			{
 				data.HBorders = new HBorderArray();
 
 				hBorders.Iterate(range.Row, range.Col, rows + 1, cols, true, (r, c, hBorder) =>
 				{
 					// only copy borders they belong to the cell (unless BorderOutsideOwner is specified)
-					if (((exFlag & ExPartialGridCopyFlag.BorderOutsideOwner) == ExPartialGridCopyFlag.BorderOutsideOwner)
+					if (exFlag.HasFlag(ExPartialGridCopyFlag.BorderOutsideOwner)
 						|| (hBorder != null && hBorder.Pos == HBorderOwnerPosition.None)
 						|| (
 								(r != range.Row
 								|| (hBorder != null
-								&& (hBorder.Pos & HBorderOwnerPosition.Top) == HBorderOwnerPosition.Top))
+								&& hBorder.Pos.HasFlag(HBorderOwnerPosition.Top)))
 							&&
 								(r != range.EndRow + 1
 								|| (hBorder != null
-								&& (hBorder.Pos & HBorderOwnerPosition.Bottom) == HBorderOwnerPosition.Bottom)))
+								&& hBorder.Pos.HasFlag(HBorderOwnerPosition.Bottom))))
 					)
 					{
 						int toCol = c - range.Col;
@@ -469,23 +445,23 @@ namespace unvell.ReoGrid
 				});
 			}
 
-			if ((flag & PartialGridCopyFlag.VBorder) == PartialGridCopyFlag.VBorder)
+			if (flag.HasFlag(PartialGridCopyFlag.VBorder))
 			{
 				data.VBorders = new VBorderArray();
 
 				vBorders.Iterate(range.Row, range.Col, rows, cols + 1, true, (r, c, vBorder) =>
 				{
 					// only copy borders they belong to the cell (unless BorderOutsideOwner is specified)
-					if (((exFlag & ExPartialGridCopyFlag.BorderOutsideOwner) == ExPartialGridCopyFlag.BorderOutsideOwner)
+					if (exFlag.HasFlag(ExPartialGridCopyFlag.BorderOutsideOwner)
 						|| (vBorder != null && vBorder.Pos == VBorderOwnerPosition.None)
 						|| (
 								(c != range.Col
 								|| (vBorder != null
-								&& (vBorder.Pos & VBorderOwnerPosition.Left) == VBorderOwnerPosition.Left))
+								&& vBorder.Pos.HasFlag(VBorderOwnerPosition.Left)))
 							&&
 								(c != range.EndCol + 1
 								|| (vBorder != null
-								&& (vBorder.Pos & VBorderOwnerPosition.Right) == VBorderOwnerPosition.Right)))
+								&& vBorder.Pos.HasFlag(VBorderOwnerPosition.Right))))
 					)
 					{
 						int toRow = r - range.Row;
@@ -530,17 +506,10 @@ namespace unvell.ReoGrid
 		/// <returns>Range has been copied</returns>
 		public RangePosition SetPartialGrid(RangePosition toRange, PartialGrid data)
 		{
-			return this.SetPartialGrid(toRange, data, PartialGridCopyFlag.All, ExPartialGridCopyFlag.None);
+			return this.SetPartialGrid(toRange, data, PartialGridCopyFlag.All);
 		}
 
-		internal RangePosition SetPartialGrid(RangePosition toRange, PartialGrid data,
-			PartialGridCopyFlag flag)
-		{
-			return this.SetPartialGrid(toRange, data, flag, ExPartialGridCopyFlag.None);
-		}
-
-		internal RangePosition SetPartialGrid(RangePosition toRange, PartialGrid data,
-			PartialGridCopyFlag flag, ExPartialGridCopyFlag exFlag)
+		internal RangePosition SetPartialGrid(RangePosition toRange, PartialGrid data, PartialGridCopyFlag flag)
 		{
 			if (toRange.IsEmpty) return toRange;
 
@@ -552,9 +521,14 @@ namespace unvell.ReoGrid
 			if (rows + toRange.Row > this.rows.Count) rows = this.rows.Count - toRange.Row;
 			if (cols + toRange.Col > this.cols.Count) cols = this.cols.Count - toRange.Col;
 
-			if (((flag & PartialGridCopyFlag.CellData) == PartialGridCopyFlag.CellData
-				|| (flag & PartialGridCopyFlag.CellStyle) == PartialGridCopyFlag.CellStyle))
+			if ((flag & PartialGridCopyFlag.CellAll) != 0)
 			{
+				if ((flag & PartialGridCopyFlag.CellAll) == PartialGridCopyFlag.CellAll)
+				{
+					// Gracefully copy/paste or drag ranges with merged cells
+					ClearRangeContent(toRange, CellElementFlag.All);
+					UnmergeRange(toRange);
+				}
 				for (int r = 0; r < rows; r++)
 				{
 					for (int c = 0; c < cols; c++)
@@ -602,12 +576,6 @@ namespace unvell.ReoGrid
 								tocell.Colspan = 0;
 								tocell.Rowspan = 0;
 
-								if (tocell.IsEndMergedCell)
-								{
-									fromMergedStart.Bounds = GetRangePhysicsBounds(new RangePosition(
-										fromMergedStart.InternalPos, fromMergedStart.MergeEndPos));
-								}
-
 								processed = true;
 
 							}
@@ -645,12 +613,8 @@ namespace unvell.ReoGrid
 									tocell.Rowspan = (short)(tocell.MergeEndPos.Row - tocell.MergeStartPos.Row + 1);
 									tocell.Colspan = (short)(tocell.MergeEndPos.Col - tocell.MergeStartPos.Col + 1);
 
-									tocell.Bounds = GetRangeBounds(tocell.InternalPos, tocell.MergeEndPos);
-
 									// copy cell content
 									CellUtility.CopyCellContent(tocell, fromCell);
-
-									UpdateCellFont(tocell);
 								}
 								else
 								{
@@ -685,11 +649,6 @@ namespace unvell.ReoGrid
 								tocell.MergeEndPos = new CellPosition(tr, fromCell.MergeEndPos.Col);
 								tocell.Rowspan = 0;
 								tocell.Colspan = 0;
-
-								if (tocell.IsEndMergedCell)
-								{
-									mergedStartCell.Bounds = GetRangeBounds(mergedStartCell.InternalPos, mergedStartCell.MergeEndPos);
-								}
 
 								processed = true;
 							}
@@ -726,12 +685,8 @@ namespace unvell.ReoGrid
 									tocell.Rowspan = (short)(tocell.MergeEndPos.Row - tocell.MergeStartPos.Row + 1);
 									tocell.Colspan = (short)(tocell.MergeEndPos.Col - tocell.MergeStartPos.Col + 1);
 
-									tocell.Bounds = GetRangeBounds(tocell.InternalPos, tocell.MergeEndPos);
-
 									// copy cell content
 									CellUtility.CopyCellContent(tocell, fromCell);
-
-									UpdateCellFont(tocell);
 								}
 								else
 								{
@@ -756,15 +711,12 @@ namespace unvell.ReoGrid
 							if (fromCell != null)
 							{
 								#region Copy Data
-								if ((flag & PartialGridCopyFlag.CellData) == PartialGridCopyFlag.CellData)
-								{
-									CellUtility.CopyCellContent(toCell, fromCell);
-								}
+								CellUtility.CopyCellContent(toCell, fromCell);
 								#endregion // Copy Data
 
 								#region Format Formula
 #if FORMULA
-								if ((flag & PartialGridCopyFlag.CellFormula) == PartialGridCopyFlag.CellFormula)
+								if (flag.HasFlag(PartialGridCopyFlag.CellFormula))
 								{
 									if (fromCell.HasFormula)
 									{
@@ -783,8 +735,7 @@ namespace unvell.ReoGrid
 										if (fromCell.formulaTree != null)
 										{
 											var rs = new ReplacableString(fromCell.InnerFormula);
-											Stack<List<Cell>> dirtyCells = new Stack<List<Cell>>();
-											FormulaRefactor.CopyFormula(fromCell.Position, fromCell.formulaTree, toCell, rs, dirtyCells);
+											FormulaRefactor.CopyFormula(fromCell.Position, fromCell.formulaTree, toCell, rs);
 										}
 
 										toCell.FontDirty = true;
@@ -797,10 +748,10 @@ namespace unvell.ReoGrid
 #endif // FORMULA
 #endregion // Formula Formula
 
-											#region Copy Merged info
+								#region Copy Merged info
 
-											// is single cell
-											if (toCell.Rowspan == 1 && toCell.Colspan == 1)
+								// is single cell
+								if (toCell.Rowspan == 1 && toCell.Colspan == 1)
 								{
 									// then copy span info
 									toCell.Rowspan = fromCell.Rowspan;
@@ -826,15 +777,10 @@ namespace unvell.ReoGrid
 #endif
 									}
 								}
-								else
-								{
-									UpdateCellFont(toCell);
-								}
-#endregion // Copy Merged info
+								#endregion // Copy Merged info
 
 								#region Cell Styles
-								if (((flag & PartialGridCopyFlag.CellStyle) == PartialGridCopyFlag.CellStyle)
-									&& fromCell.InnerStyle != null)
+								if (flag.HasFlag(PartialGridCopyFlag.CellStyle) && fromCell.InnerStyle != null)
 								{
 									if (fromCell.StyleParentKind == StyleParentKind.Own)
 									{
@@ -859,18 +805,6 @@ namespace unvell.ReoGrid
 									}
 								}
 								#endregion // Cell Styles
-
-								if (toCell.IsEndMergedCell)
-								{
-									Cell cell = GetCell(toCell.MergeStartPos);
-									Debug.Assert(cell != null);
-
-									UpdateCellBounds(cell);
-								}
-								else if (toCell.Rowspan == 1 && toCell.Colspan == 1)
-								{
-									UpdateCellFont(toCell);
-								}
 							}
 							else
 							{
@@ -882,7 +816,7 @@ namespace unvell.ReoGrid
 			}
 
 			// h-borders
-			if ((flag & PartialGridCopyFlag.HBorder) == PartialGridCopyFlag.HBorder)
+			if (flag.HasFlag(PartialGridCopyFlag.HBorder))
 			{
 				if (data.HBorders == null)
 				{
@@ -951,7 +885,7 @@ namespace unvell.ReoGrid
 			}
 
 			// v-borders
-			if ((flag & PartialGridCopyFlag.VBorder) == PartialGridCopyFlag.VBorder)
+			if (flag.HasFlag(PartialGridCopyFlag.VBorder))
 			{
 				if (data.VBorders == null)
 				{
@@ -1044,7 +978,8 @@ namespace unvell.ReoGrid
 		/// <param name="grid">Partial grid to be copied</param>
 		/// <param name="range">Range to be copied</param>
 		/// <returns></returns>
-		public RangePosition SetPartialGridRepeatly(RangePosition range, PartialGrid grid)
+		public RangePosition SetPartialGridRepeatly(RangePosition range,
+			PartialGrid grid, PartialGridCopyFlag flag = PartialGridCopyFlag.All)
 		{
 			if (grid.Rows <= 0 || grid.Columns <= 0) return RangePosition.Empty;
 
@@ -1052,7 +987,7 @@ namespace unvell.ReoGrid
 			{
 				for (int c = range.Col; c <= range.EndCol; c += grid.Columns)
 				{
-					SetPartialGrid(new RangePosition(r, c, grid.Rows, grid.Columns), grid);
+					SetPartialGrid(new RangePosition(r, c, grid.Rows, grid.Columns), grid, flag);
 				}
 			}
 

@@ -37,7 +37,7 @@ namespace unvell.ReoGrid.Chart
 	/// <summary>
 	/// Represents chart drawing component.
 	/// </summary>
-	public abstract class Chart : DrawingComponent, IChart//, ILegendSupportedChart
+	public abstract class Chart : DrawingComponent, IChart
 	{
 		/// <summary>
 		/// Get or set the title string object.
@@ -55,8 +55,6 @@ namespace unvell.ReoGrid.Chart
 		/// </summary>
 		protected Chart()
 		{
-			this.Title = "Chart";
-
 			// border line color
 			this.LineColor = SolidColor.Silver;
 			this.Padding = new PaddingValue(10);
@@ -84,29 +82,11 @@ namespace unvell.ReoGrid.Chart
 		}
 
 		/// <summary>
-		/// Relayout this view.
-		/// </summary>
-		/// <param name="oldRect">Bounds rectangle before changed.</param>
-		public override void OnBoundsChanged(Rectangle oldRect)
-		{
-			base.OnBoundsChanged(oldRect);
-
-			this.layoutDirty = true;
-		}
-
-		private bool layoutDirty = true;
-
-		internal void DirtyLayout()
-		{
-			this.layoutDirty = true;
-		}
-
-		/// <summary>
 		/// Update children view bounds.
 		/// </summary>
-		protected virtual void UpdateLayout()
+		protected virtual void UpdateLayout(DrawingContext dc)
 		{
-			var clientRect = this.ClientBounds;
+			var clientRect = ClientBounds;
 
 			const RGFloat titlePlotSpacing = 20;
 			const RGFloat plotLegendSpacing = 10;
@@ -116,53 +96,79 @@ namespace unvell.ReoGrid.Chart
 			var bodyBounds = new Rectangle(clientRect.X, titleBounds.Bottom + titlePlotSpacing,
 				clientRect.Width, clientRect.Height - titleBounds.Bottom - titlePlotSpacing);
 
-			if (this.showLegend)
+			if (ShowLegend)
 			{
 				var legendSize = Size.Zero;
 
-				if (this.PrimaryLegend != null)
+				if (PrimaryLegend != null)
 				{
-					this.PrimaryLegend.MeasureSize(clientRect);
+					PrimaryLegend.MeasureSize(dc, clientRect);
+					PrimaryLegend.Visible = PrimaryLegend.Children.Count != 0;
 
-					this.PrimaryLegend.Bounds = this.GetLegendBounds(bodyBounds, LegendType.PrimaryLegend, this.PrimaryLegend.LegendPosition);
-					legendSize = this.PrimaryLegend.Size;
-
-					switch (this.PrimaryLegend.LegendPosition)
+					if (PrimaryLegend.Visible)
 					{
-						case LegendPosition.Left:
-							bodyBounds.X += legendSize.Width + plotLegendSpacing;
-							break;
+						PrimaryLegend.Bounds = GetLegendBounds(bodyBounds, LegendType.PrimaryLegend, PrimaryLegend.LegendPosition);
 
-						default:
-						case LegendPosition.Right:
-							bodyBounds.Width -= legendSize.Width + plotLegendSpacing;
-							break;
+						switch (PrimaryLegend.LegendPosition)
+						{
+							case LegendPosition.Left:
+								bodyBounds.X += PrimaryLegend.Width + plotLegendSpacing;
+								break;
 
-						case LegendPosition.Top:
-							bodyBounds.Y += legendSize.Height + plotLegendSpacing;
-							break;
+							default:
+							case LegendPosition.Right:
+								bodyBounds.Width -= PrimaryLegend.Width + plotLegendSpacing;
+								break;
 
-						case LegendPosition.Bottom:
-							bodyBounds.Height -= legendSize.Height + plotLegendSpacing;
-							break;
+							case LegendPosition.Top:
+								bodyBounds.Y += PrimaryLegend.Height + plotLegendSpacing;
+								break;
+
+							case LegendPosition.Bottom:
+								bodyBounds.Height -= PrimaryLegend.Height + plotLegendSpacing;
+								break;
+						}
 					}
 				}
 			}
 
-			if (this.PlotViewContainer != null)
+			if (PlotViewContainer != null)
 			{
-				this.PlotViewContainer.Bounds = this.GetPlotViewBounds(bodyBounds);
+				PlotViewContainer.Bounds = GetPlotViewBounds(dc, bodyBounds);
 			}
 
-			if (this.TitleView != null) this.TitleView.Bounds = titleBounds;
-
-			this.layoutDirty = false;
+			if (TitleView != null) TitleView.Bounds = titleBounds;
 		}
 
-			/// <summary>
-			/// Get default title bounds.
-			/// </summary>
-			/// <returns>Rectangle of title bounds.</returns>
+		/// <summary>
+		/// Get the chart title shown to the user, either as explicitly assigned,
+		/// or as derived from the exact one serial or category name if such exists.
+		/// </summary>
+		public string GetDisplayTitle()
+		{
+			string text = Title;
+			if (string.IsNullOrEmpty(text) && DataSource != null)
+			{
+				if (DataSource.SerialCount == 1)
+				{
+					text = DataSource[0].Label;
+				}
+				else if (DataSource.CategoryCount == 1)
+				{
+					text = DataSource.GetCategoryName(0);
+				}
+				else
+				{
+					text = "Chart";
+				}
+			}
+			return text;
+		}
+
+		/// <summary>
+		/// Get default title bounds.
+		/// </summary>
+		/// <returns>Rectangle of title bounds.</returns>
 		protected virtual Rectangle GetTitleBounds()
 		{
 			var titleRect = this.ClientBounds;
@@ -174,7 +180,7 @@ namespace unvell.ReoGrid.Chart
 		/// Get default body bounds.
 		/// </summary>
 		/// <returns>Rectangle of body bounds.</returns>
-		protected virtual Rectangle GetPlotViewBounds(Rectangle bodyBounds)
+		protected virtual Rectangle GetPlotViewBounds(DrawingContext dc, Rectangle bodyBounds)
 		{
 			return bodyBounds;
 		}
@@ -185,11 +191,6 @@ namespace unvell.ReoGrid.Chart
 		/// <returns></returns>
 		protected virtual Rectangle GetLegendBounds(Rectangle plotViewBounds, LegendType type, LegendPosition position)
 		{
-			if (!this.showLegend)
-			{
-				return new Rectangle(0, 0, 0, 0);
-			}
-
 			var clientRect = this.ClientBounds;
 
 			Size legendSize = Size.Zero;
@@ -229,11 +230,7 @@ namespace unvell.ReoGrid.Chart
 		#region Paint
 		protected override void OnPaint(DrawingContext dc)
 		{
-			if (this.layoutDirty)
-			{
-				this.UpdateLayout();
-			}
-
+			UpdateLayout(dc);
 			base.OnPaint(dc);
 		}
 		#endregion // Paint
@@ -254,74 +251,10 @@ namespace unvell.ReoGrid.Chart
 			get { return this.dataSource; }
 			set
 			{
-				if (this.dataSource != null)
-				{
-					this.dataSource.DataChanged -= dataSource_DataChanged;
-					//this.dataSource.DataRangeChanged -= dataSource_DataRangeChanged;
-				}
-
 				this.dataSource = value;
-
-				if (this.dataSource != null)
-				{
-					this.dataSource.DataChanged += dataSource_DataChanged;
-					//this.dataSource.DataRangeChanged += dataSource_DataRangeChanged;
-				}
-
 				this.ResetDataSerialStyles();
-				OnDataSourceChanged();
 			}
 		}
-
-		void dataSource_DataChanged(object sender, EventArgs e)
-		{
-			this.OnDataChanged();
-		}
-
-		//void dataSource_DataRangeChanged(object sender, EventArgs e)
-		//{
-		//	this.OnDataSourceChanged();
-		//}
-
-		/// <summary>
-		/// This method will be invoked when data from data source is changed.
-		/// </summary>
-		protected virtual void OnDataChanged()
-		{
-			this.UpdatePlotData();
-
-			this.UpdateLayout();
-
-			if (this.ChartDataChanged != null)
-			{
-				this.ChartDataChanged(this, null);
-			}
-		}
-
-		/// <summary>
-		/// This event will be invoked when chart data from data source is changed.
-		/// </summary>
-		public event EventHandler ChartDataChanged;
-
-		/// <summary>
-		/// This method will be invoked when chart data source is changed.
-		/// </summary>
-		protected virtual void OnDataSourceChanged()
-		{
-			this.UpdatePlotData();
-
-			this.UpdateLayout();
-
-			if (this.DataSourceChanged != null)
-			{
-				this.DataSourceChanged(this, null);
-			}
-		}
-
-		/// <summary>
-		/// This event will be invoked when chart data source is changed.
-		/// </summary>
-		public event EventHandler DataSourceChanged;
 
 		/// <summary>
 		/// Update chart when data source or data range has been changed.
@@ -358,38 +291,15 @@ namespace unvell.ReoGrid.Chart
 
 		#region Legend
 
-		private bool showLegend = true;
-
 		/// <summary>
 		/// Get or set whether or not to show legend view.
 		/// </summary>
-		public bool ShowLegend
-		{
-			get { return this.showLegend; }
-			set
-			{
-				if (this.showLegend != value)
-				{
-					this.showLegend = value;
-
-					if (this.PrimaryLegend != null)
-					{
-						this.PrimaryLegend.Visible = value;
-					}
-
-					this.DirtyLayout();
-				}
-			}
-		}
+		public bool ShowLegend { get; set; } = true;
 
 		/// <summary>
 		/// Get or set the primary legend object.
 		/// </summary>
-	public virtual ChartLegend PrimaryLegend
-		{
-			get;
-			set;
-		}
+		public virtual ChartLegend PrimaryLegend { get; set; }
 
 		//private LegendPosition primaryLegendPosition;
 
@@ -430,22 +340,22 @@ namespace unvell.ReoGrid.Chart
 		/// </summary>
 		protected virtual void ResetDataSerialStyles()
 		{
-			var ds = this.dataSource;
-			if (ds == null) return;
+			if (DataSource == null) return;
 
-			int dataSerialCount = this.dataSource.SerialCount;
+			// Allocate styles in such way that derived classes can opt to use them for categories instead
+			int dataSerialCount = Math.Max(DataSource.SerialCount, DataSource.CategoryCount);
 
-			if (this.dataSource == null || dataSerialCount <= 0)
+			if (dataSerialCount <= 0)
 			{
-				this.serialStyles.Clear();
+				serialStyles.Clear();
 			}
 
-			while (this.serialStyles.Count < dataSerialCount)
+			while (serialStyles.Count < dataSerialCount)
 			{
-				this.serialStyles.Add(new DataSerialStyle(this)
+				serialStyles.Add(new DataSerialStyle(this)
 				{
-					FillColor = ChartUtility.GetDefaultDataSerialFillColor(this.serialStyles.Count),
-					LineColor = ChartUtility.GetDefaultDataSerialFillColor(this.serialStyles.Count),
+					FillColor = ChartUtility.GetDefaultDataSerialFillColor(serialStyles.Count),
+					LineColor = ChartUtility.GetDefaultDataSerialFillColor(serialStyles.Count),
 					LineWidth = 2f,
 				});
 			}
@@ -628,31 +538,6 @@ namespace unvell.ReoGrid.Chart
 		
 		#endregion // Constructor
 
-		#region Data Changes
-
-		/// <summary>
-		/// This method will be invoked when data source of this chart is changed.
-		/// </summary>
-		protected override void OnDataSourceChanged()
-		{
-			base.OnDataSourceChanged();
-
-			this.ResetDrawPoints();
-			this.UpdateDrawPoints();
-		}
-
-		/// <summary>
-		/// This method will be invoked when data from the data source of this chart is changed.
-		/// </summary>
-		protected override void OnDataChanged()
-		{
-			base.OnDataChanged();
-
-			this.UpdateDrawPoints();
-		}
-
-		#endregion // Data Changes
-
 		#region Update Draw Points
 
 		/// <summary>
@@ -660,39 +545,26 @@ namespace unvell.ReoGrid.Chart
 		/// </summary>
 		protected override void UpdatePlotData()
 		{
-			var ds = this.DataSource;
+			var ds = DataSource;
 			if (ds == null) return;
 
-			double minData = 0;
-			double maxData = 0;
-			bool first = true;
+			double minData = double.PositiveInfinity;
+			double maxData = double.NegativeInfinity;
 
 			for (int r = 0; r < ds.SerialCount; r++)
 			{
 				for (int c = 0; c < ds.CategoryCount; c++)
 				{
-					double? data = ds[r][c];
-
-					if (data != null)
+					if (ds[r][c] is double data)
 					{
-						if (first)
-						{
-							minData = (double)data;
-							maxData = minData;
-
-							first = false;
-						}
-						else
-						{
-							if (minData > data) minData = (double)data;
-							if (maxData < data) maxData = (double)data;
-						}
+						if (minData > data) minData = data;
+						if (maxData < data) maxData = data;
 					}
 				}
 			}
 
 			//var ai = !SwapDataRowColumn ? PrimaryAxisInfo : SecondaryAxisInfo;
-			this.UpdateAxisInfo(this.PrimaryAxisInfo, minData, maxData);
+			UpdateAxisInfo(PrimaryAxisInfo, minData, maxData);
 		}
 
 		/// <summary>
@@ -707,7 +579,9 @@ namespace unvell.ReoGrid.Chart
 
 			double range = maxData - minData;
 
-			ai.Levels = (int)Math.Ceiling(clientRect.Height / 30f);
+			var isTransposed = HorizontalAxisInfoView.Orientation == AxisOrientation.Vertical;
+
+			ai.Levels = (int)Math.Ceiling((isTransposed ? clientRect.Width : clientRect.Height) / 30f);
 
 			// when clientRect is zero, nothing to do
 			if (double.IsNaN(ai.Levels))
@@ -725,6 +599,7 @@ namespace unvell.ReoGrid.Chart
 
 			int scaler;
 			double stride = ChartUtility.CalcLevelStride(minData, maxData, ai.Levels, out scaler);
+			double nearzero = stride / 1E9;
 			ai.Scaler = scaler;
 
 			double m;
@@ -738,16 +613,9 @@ namespace unvell.ReoGrid.Chart
 				else
 				{
 					m = minData % stride;
-					if (m == 0)
+					if (Math.Abs(m) < nearzero)
 					{
-						if (minData == 0)
-						{
-							ai.Minimum = minData;
-						}
-						else
-						{
-							ai.Minimum = minData - stride;
-						}
+						ai.Minimum = minData;
 					}
 					else
 					{
@@ -766,9 +634,9 @@ namespace unvell.ReoGrid.Chart
 			if (!ai.AutoMaximum)
 			{
 				m = maxData % stride;
-				if (m == 0)
+				if (Math.Abs(m) < nearzero)
 				{
-					ai.Maximum = maxData + stride;
+					ai.Maximum = maxData;
 				}
 				else
 				{
@@ -808,170 +676,6 @@ namespace unvell.ReoGrid.Chart
 					&& Math.Abs(minData) < range;
 		}
 
-		/// <summary>
-		/// Get the origin value of width related to this view object.
-		/// </summary>
-		public RGFloat ZeroWidth { get; protected set; }
-
-		/// <summary>
-		/// Get the origin value of height related to this view object.
-		/// </summary>
-		public RGFloat ZeroHeight { get; protected set; }
-
-		private PlotPointRow[] platRowPoints = null;
-		internal PlotPointRow[] PlotDataPoints { get { return this.platRowPoints; } }
-
-		private RGFloat[] platColPoints = null;
-		internal RGFloat[] PlotColumnPoints { get { return this.platColPoints; } }
-
-		/// <summary>
-		/// Reset plot drawing points.
-		/// </summary>
-		protected virtual void ResetDrawPoints()
-		{
-			var ds = this.DataSource;
-
-			if (ds != null)
-			{
-				#region Row
-
-				if (this.platRowPoints == null)
-				{
-					this.platRowPoints = new PlotPointRow[ds.SerialCount];
-				}
-				else
-				{
-					if (this.platRowPoints.Length != ds.SerialCount)
-					{
-						Array.Resize(ref this.platColPoints, ds.SerialCount);
-					}
-				}
-
-				for (int r = 0; r < ds.SerialCount; r++)
-				{
-					this.platRowPoints[r].columns = new PlotPointColumn[ds.CategoryCount];
-				}
-
-				#endregion // Row
-
-				#region Columns
-
-				if (this.platColPoints == null)
-				{
-					this.platColPoints = new RGFloat[ds.CategoryCount];
-				}
-				else
-				{
-					if (this.platColPoints.Length != ds.CategoryCount)
-					{
-						Array.Resize(ref this.platColPoints, ds.CategoryCount);
-					}
-
-					for (int i = 0; i < ds.CategoryCount; i++)
-					{
-						this.platColPoints[i] = 0;
-					}
-				}
-
-				#endregion // Columns
-			}
-			else
-			{
-				#region Reset
-				for (int r = 0; r < this.platRowPoints.Length; r++)
-				{
-					var row = this.platRowPoints[r];
-
-					for (int c = 0; c < row.Length; c++)
-					{
-						this.platRowPoints[r][c] = 0;
-					}
-				}
-
-				for (int i = 0; i < this.platColPoints.Length; i++)
-				{
-					this.platColPoints[i] = 0;
-				}
-				#endregion // Reset
-			}
-		}
-
-		/// <summary>
-		/// Update plot drawing points.
-		/// </summary>
-		protected virtual void UpdateDrawPoints()
-		{
-			var ds = this.DataSource;
-
-			if (ds != null)
-			{
-				//var ai = !this.SwapDataRowColumn ? this.PrimaryAxisInfo : this.SecondaryAxisInfo;
-				var ai = this.PrimaryAxisInfo;
-
-				if (!double.IsNaN(ai.Levels))
-				{
-					int serialCount = ds.SerialCount;
-					int categoryCount = ds.CategoryCount;
-
-					var total = (ai.Maximum - ai.Minimum);
-
-					var clientSize = this.PlotViewContainer.Size;
-
-					RGFloat scaleX = clientSize.Width / categoryCount;
-					double scaleY = clientSize.Height / total;
-
-					this.ZeroHeight = (RGFloat)(clientSize.Height + clientSize.Height * ai.Minimum / total);
-					this.ZeroWidth = (RGFloat)(clientSize.Width * ai.Minimum / total);
-
-					var colHalf = clientSize.Width / categoryCount / 2;
-
-					for (int r = 0; r < serialCount; r++)
-					{
-						var serial = ds.GetSerial(r);
-
-						for (int c = 0; c < categoryCount; c++)
-						{
-							if (r == 0)
-							{
-								this.platColPoints[c] = colHalf + (float)c * scaleX;
-							}
-
-							var data = serial[c];
-
-							if (data == null)
-							{
-								this.platRowPoints[r][c] = PlotPointColumn.Nil;
-							}
-							else
-							{
-								this.platRowPoints[r][c] = (RGFloat)((data) * scaleY);
-							}
-						}
-					}
-				}
-			}
-		}
-
-		/// <summary>
-		/// This method will be invoked when chart bounds changed.
-		/// </summary>
-		/// <param name="oldRect">Old bounds rectangle.</param>
-		public override void OnBoundsChanged(Rectangle oldRect)
-		{
-			base.OnBoundsChanged(oldRect);
-
-			this.UpdatePlotData();
-			this.UpdateDrawPoints();
-
-			//if (this.PlotViewContainer != null)
-			//{
-			//	foreach (var child in this.PlotViewContainer.Children)
-			//	{
-			//		child.Bounds = this.PlotViewContainer.Bounds;
-			//	}
-			//}
-		}
-
 		#endregion // Update Draw Points
 
 		#region Layout
@@ -979,24 +683,13 @@ namespace unvell.ReoGrid.Chart
 		/// <summary>
 		/// Update all children bounds.
 		/// </summary>
-		protected override void UpdateLayout()
+		protected override void UpdateLayout(DrawingContext dc)
 		{
-			base.UpdateLayout();
+			base.UpdateLayout(dc);
 
-			//if (this.PlotViewContainer != null)
-			//{
-			//	var bodyBounds = this.PlotViewContainer.Bounds;
+			UpdatePlotData();
 
-			//	if (this.HorizontalAxisInfoView != null)
-			//	{
-			//		this.HorizontalAxisInfoView.Bounds = GetDefaultHorizontalAxisInfoViewBounds(bodyBounds);
-			//	}
-
-			//	this.UpdateChart();
-			//	this.UpdateDrawPoints();
-			//}
-
-			this.GuideLineBackgroundView.Bounds = this.PlotViewContainer.ClientBounds;
+			GuideLineBackgroundView.Bounds = PlotViewContainer.ClientBounds;
 
 			UpdateAxisLabelViewLayout(this.PlotViewContainer.Bounds);
 		}
@@ -1005,13 +698,16 @@ namespace unvell.ReoGrid.Chart
 		{
 			const RGFloat spacing = 10;
 
-			this.VerticalAxisInfoView.Bounds = new Rectangle(this.ClientBounds.X, plotRect.Y - 5, 30, plotRect.Height + 10);
-			this.HorizontalAxisInfoView.Bounds = new Rectangle(plotRect.X, plotRect.Bottom + spacing, plotRect.Width, 10);
+			var isTransposed = HorizontalAxisInfoView.Orientation == AxisOrientation.Vertical;
+			var vbounds = new Rectangle(ClientBounds.X, plotRect.Y - 5, plotRect.X - ClientBounds.X - spacing, plotRect.Height + 10);
+			var hbounds = new Rectangle(plotRect.X, plotRect.Bottom + 5, plotRect.Width, 15);
+			VerticalAxisInfoView.Bounds = isTransposed ? hbounds : vbounds;
+			HorizontalAxisInfoView.Bounds = isTransposed ? vbounds : hbounds;
 		}
 
-		protected override Rectangle GetPlotViewBounds(Rectangle bodyBounds)
+		protected override Rectangle GetPlotViewBounds(DrawingContext dc, Rectangle bodyBounds)
 		{
-			var rect = base.GetPlotViewBounds(bodyBounds);
+			var rect = base.GetPlotViewBounds(dc, bodyBounds);
 
 			const RGFloat spacing = 10;
 

@@ -60,7 +60,7 @@ namespace unvell.ReoGrid.WinForm
 		{
 			this.sf = new StringFormat(StringFormat.GenericTypographic)
 			{
-				FormatFlags = StringFormatFlags.MeasureTrailingSpaces
+				FormatFlags = StringFormatFlags.MeasureTrailingSpaces | StringFormatFlags.FitBlackBox
 			};
 		}
 
@@ -346,6 +346,8 @@ namespace unvell.ReoGrid.WinForm
 			{
 				lock (this.sf)
 				{
+					sf.FormatFlags |= StringFormatFlags.NoWrap;
+
 					switch (halign)
 					{
 						default: sf.Alignment = StringAlignment.Near; break;
@@ -684,13 +686,13 @@ namespace unvell.ReoGrid.WinForm
 			{
 				default:
 				case DrawMode.View:
-					textBounds = cell.TextBounds;
+					textBounds = cell.Worksheet.UpdateCellTextBounds(this, cell, drawMode, scale);
 					scaledFont = cell.RenderFont;
 					break;
 
 				case DrawMode.Preview:
 				case DrawMode.Print:
-					textBounds = cell.PrintTextBounds;
+					textBounds = cell.Worksheet.UpdateCellTextBounds(this, cell, drawMode, scale);
 					scaledFont = this.resourceManager.GetFont(cell.RenderFont.Name,
 						cell.InnerStyle.FontSize * scale, cell.RenderFont.Style);
 					break;
@@ -702,11 +704,11 @@ namespace unvell.ReoGrid.WinForm
 				#region Set sf wrap
 				if (cell.InnerStyle.TextWrapMode == TextWrapMode.NoWrap)
 				{
-					sf.FormatFlags |= System.Drawing.StringFormatFlags.NoWrap;
+					sf.FormatFlags |= StringFormatFlags.NoWrap;
 				}
 				else
 				{
-					sf.FormatFlags &= ~System.Drawing.StringFormatFlags.NoWrap;
+					sf.FormatFlags &= ~StringFormatFlags.NoWrap;
 				}
 				#endregion // Set sf wrap
 
@@ -829,7 +831,7 @@ namespace unvell.ReoGrid.WinForm
 				{
 					// no word break
 					fieldWidth = 9999999; // TODO: avoid magic number
-					sf.FormatFlags |= System.Drawing.StringFormatFlags.NoWrap;
+					sf.FormatFlags |= StringFormatFlags.NoWrap;
 				}
 				else
 				{
@@ -858,12 +860,7 @@ namespace unvell.ReoGrid.WinForm
 
 					// word break
 					fieldWidth = (int)Math.Round(cellWidth * scale);
-					sf.FormatFlags &= ~System.Drawing.StringFormatFlags.NoWrap;
-				}
-
-				if (cell.FontDirty)
-				{
-					sheet.UpdateCellRenderFont(this, cell, drawMode, UpdateFontReason.FontChanged);
+					sf.FormatFlags &= ~StringFormatFlags.NoWrap;
 				}
 
 				var g = this.cachedGraphics;

@@ -17,14 +17,9 @@
  ****************************************************************************/
 
 using System;
-using System.Collections.Generic;
 using System.Globalization;
-using System.Linq;
-using System.Text;
 using System.Threading;
 using unvell.ReoGrid.Core;
-using unvell.ReoGrid.DataFormat;
-using unvell.ReoGrid.Utility;
 
 namespace unvell.ReoGrid.DataFormat
 {
@@ -33,61 +28,51 @@ namespace unvell.ReoGrid.DataFormat
 	/// </summary>
 	public class DateTimeDataFormatter : IDataFormatter
 	{
-		private static DateTime baseStartDate = new DateTime(1900, 1, 1);
-
 		/// <summary>
-		/// Base start time used to calculcate the date from a number value
-		/// </summary>
-		public static DateTime BaseStartDate { get { return baseStartDate; } set { baseStartDate = value; } }
-
-		/// <summary>
-		/// Format cell
+		/// Format specified cell
 		/// </summary>
 		/// <param name="cell">cell to be formatted</param>
+		/// <param name="culture">culture for parsing</param>
 		/// <returns>Formatted text used to display as cell content</returns>
-		public string FormatCell(Cell cell)
+		public string FormatCell(Cell cell, CultureInfo culture)
 		{
 			object data = cell.InnerData;
 
 			bool isFormat = false;
-			double number;
-			DateTime value = baseStartDate;
+			DateTime value = DateTime.FromOADate(0);
 			string formattedText = null;
 
-			if (data is DateTime)
+			if (data is DateTime dt)
 			{
-				value = (DateTime)data;
+				value = dt;
 				isFormat = true;
-			}
-			else if (CellUtility.TryGetNumberData(data, out number))
-			{
-				try
-				{
-					// Excel/Lotus 2/29/1900 bug   
-					// original post: http://stackoverflow.com/questions/4538321/reading-datetime-value-from-excel-sheet
-					value = DateTime.FromOADate(number);
-
-					isFormat = true;
-				}
-				catch { }
 			}
 			else
 			{
 				string strdata = (data is string ? (string)data : Convert.ToString(data));
-
-				double days = 0;
-				if (double.TryParse(strdata, out days))
+				double number;
+				bool isnumber = double.TryParse(strdata, NumberStyles.Float, culture, out number);
+				if (DateTime.TryParse(strdata, culture, DateTimeStyles.None, out value) && !isnumber)
+				{
+					cell.InnerData = value;
+					isFormat = true;
+					if (cell.DataFormatArgs == null)
+					{
+						cell.DataFormatArgs = new DateTimeFormatArgs
+						{
+							Format = culture.DateTimeFormat.ShortDatePattern,
+							CultureName = culture.Name
+						};
+					}
+				}
+				else if (isnumber)
 				{
 					try
 					{
-						value = value.AddDays(days);
+						value = DateTime.FromOADate(number);
 						isFormat = true;
 					}
 					catch { }
-				}
-				else
-				{
-					isFormat = (DateTime.TryParse(strdata, out value));
 				}
 			}
 
@@ -98,28 +83,21 @@ namespace unvell.ReoGrid.DataFormat
 					cell.RenderHorAlign = ReoGridRenderHorAlign.Right;
 				}
 
-				CultureInfo culture = null;
+				culture = cell.Worksheet.Culture;
+				string pattern = culture.DateTimeFormat.ShortDatePattern;
 
-				string pattern = System.Threading.Thread.CurrentThread.CurrentCulture.DateTimeFormat.ShortDatePattern;
-
-				if (cell.DataFormatArgs != null && cell.DataFormatArgs is DateTimeFormatArgs)
+				if (cell.DataFormatArgs is DateTimeFormatArgs args)
 				{
-					DateTimeFormatArgs dargs = (DateTimeFormatArgs)cell.DataFormatArgs;
-
 					// fixes issue #203: pattern is ignored incorrectly
-					if (!string.IsNullOrEmpty(dargs.Format))
+					if (!string.IsNullOrEmpty(args.Format))
 					{
-						pattern = dargs.Format;
+						pattern = args.Format;
 					}
 
-					culture = (dargs.CultureName == null
-						|| string.Equals(dargs.CultureName, Thread.CurrentThread.CurrentCulture.Name))
-						? Thread.CurrentThread.CurrentCulture : new CultureInfo(dargs.CultureName);
-				}
-				else
-				{
-					culture = System.Threading.Thread.CurrentThread.CurrentCulture;
-					cell.DataFormatArgs = new DateTimeFormatArgs { Format = pattern, CultureName = culture.Name };
+					if (args.CultureName != null && args.CultureName != culture.Name)
+					{
+						culture = CultureInfo.GetCultureInfoByIetfLanguageTag(args.CultureName);
+					}
 				}
 
 				if (culture.Name.StartsWith("ja") && pattern.Contains("g"))
@@ -147,7 +125,7 @@ namespace unvell.ReoGrid.DataFormat
 				}
 			}
 
-			return isFormat ? formattedText : null;
+			return formattedText;
 		}
 
 		/// <summary>

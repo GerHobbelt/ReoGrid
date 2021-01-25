@@ -48,10 +48,11 @@ namespace unvell.ReoGrid.Actions
 		/// </summary>
 		public override void Do()
 		{
-			backupData = Worksheet.GetPartialGrid(base.Range, PartialGridCopyFlag.All, ExPartialGridCopyFlag.BorderOutsideOwner);
+			backupData = Worksheet.GetPartialGrid(Range, PartialGridCopyFlag.All, ExPartialGridCopyFlag.BorderOutsideOwner);
 			Debug.Assert(backupData != null);
-			base.Range = base.Worksheet.SetPartialGridRepeatly(base.Range, data);
-			Worksheet.SelectRange(base.Range);
+			Range = Worksheet.SetPartialGridRepeatly(Range, data);
+			Worksheet.RequestInvalidate();
+			Worksheet.SelectRange(Range);
 		}
 
 		/// <summary>
@@ -60,7 +61,7 @@ namespace unvell.ReoGrid.Actions
 		public override void Undo()
 		{
 			Debug.Assert(backupData != null);
-			base.Worksheet.SetPartialGrid(base.Range, backupData, PartialGridCopyFlag.All, ExPartialGridCopyFlag.BorderOutsideOwner);
+			Worksheet.SetPartialGridRepeatly(Range, backupData);
 		}
 
 		/// <summary>

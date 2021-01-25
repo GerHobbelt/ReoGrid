@@ -57,70 +57,23 @@ namespace unvell.ReoGrid.Drawing
 		};
 #endif // WINFORM
 
-		private bool suspendUpdateText = false;
-
-		/// <summary>
-		/// Suspend update text when size, wrap-mode etc. properties changed.
-		/// </summary>
-		public void SuspendUpdateText()
-		{
-			this.suspendUpdateText = true;
-		}
-
-		/// <summary>
-		/// Resume update text when size, wrap-mode etc. properties changed.
-		/// </summary>
-		public void ResumeUpdateText()
-		{
-			this.suspendUpdateText = false;
-		}
-
 		#region Constants
 		internal const string BuiltInDefaultFontName = "Calibri";
 		internal const RGFloat BuiltInDefaultFontSize = 10.25f;
 		#endregion // Constants
 
 		#region Size
-		private Size size;
-
 		/// <summary>
 		/// Get or set the display area size. (in pixel)
 		/// </summary>
-		internal Size Size
-		{
-			get { return this.size; }
-			set
-			{
-				if (this.size != value)
-				{
-					this.size = value;
-
-					if (!this.suspendUpdateText)
-					{
-						this.UpdateText();
-					}
-				}
-			}
-		}
+		internal Size Size;
 		#endregion // Size
 
 		#region Measured Size
-		internal Size measuredSize = new Size(0, 0);
-
 		/// <summary>
 		/// Get the actual size to display text.
 		/// </summary>
-		public Size TextSize
-		{
-			get
-			{
-				return this.measuredSize;
-				//var p = this.paragraphs.Count <= 0 ? null : this.paragraphs[this.paragraphs.Count - 1];
-				//return p = null ? new Size(0,0) : new Size(textMaxWidth, p.TextSize.
-				//var lastLine = p.lines.Count <= 0 ? null : p.lines[p.lines.Count - 1];
-				//return lastLine == null ? new Size(0, 0) : new Size(this.textMaxWidth, lastLine.Bottom);
-			}
-		}
+		public Size TextSize => UpdateText();
 		#endregion // Measured Text Size
 
 		#region Default Values
@@ -158,27 +111,10 @@ namespace unvell.ReoGrid.Drawing
 		/// </summary>
 		public bool Overflow { get; set; }
 
-		private TextWrapMode textWrap = TextWrapMode.NoWrap;
-
 		/// <summary>
 		/// Determines the text wrap mode.
 		/// </summary>
-		public TextWrapMode TextWrap
-		{
-			get { return textWrap; }
-			set
-			{
-				if (this.textWrap != value)
-				{
-					this.textWrap = value;
-
-					if (!this.suspendUpdateText)
-					{
-						this.UpdateText();
-					}
-				}
-			}
-		}
+		public TextWrapMode TextWrap = TextWrapMode.NoWrap;
 
 		/// <summary>
 		/// Get or set the vertical alignment mode.
@@ -211,7 +147,7 @@ namespace unvell.ReoGrid.Drawing
 			this.DefaultHorizontalAlignment = ReoGridHorAlign.Left;
 			this.DefaultParagraphSpacing = 1.5f;
 
-			this.Overflow = false;
+			this.Overflow = true;
 		}
 
 #if WINFORM
@@ -230,7 +166,7 @@ namespace unvell.ReoGrid.Drawing
 		/// <param name="size"></param>
 		internal RichText(Size size)
 		{
-			this.size = size;
+			this.Size = size;
 		}
 
 		#endregion // Constructors
@@ -267,6 +203,11 @@ namespace unvell.ReoGrid.Drawing
 		{
 			var lastPara = this.GetOrCreateLastParagraph();
 			lastPara.AddText(text, fontName, fontSize, fontStyles, textColor, backColor);
+		}
+
+		public override bool Equals(object obj)
+		{
+			return obj is RichText other ? Enumerable.SequenceEqual(paragraphs, other.paragraphs) : false;
 		}
 
 		/// <summary>
@@ -387,6 +328,8 @@ namespace unvell.ReoGrid.Drawing
 		/// <param name="bounds">Target area to draw rich text.</param>
 		internal void Draw(IGraphics g, Rectangle bounds)
 		{
+			var measuredSize = UpdateText();
+
 			RGFloat x = bounds.Left + 2;
 			RGFloat y = bounds.Top + 2;
 
@@ -400,11 +343,11 @@ namespace unvell.ReoGrid.Drawing
 				default:
 				case ReoGridVerAlign.General:
 				case ReoGridVerAlign.Bottom:
-					y += (bounds.Height - this.measuredSize.Height) - 6;
+					y += (bounds.Height - measuredSize.Height) - 6;
 					break;
 
 				case ReoGridVerAlign.Middle:
-					y += (bounds.Height - this.measuredSize.Height) / 2 - 2;
+					y += (bounds.Height - measuredSize.Height) / 2 - 2;
 					break;
 
 				case ReoGridVerAlign.Top:
@@ -502,24 +445,20 @@ namespace unvell.ReoGrid.Drawing
 
 		#region Update
 
-#if DEBUG
-		public long lastUpdateMS;
-#endif // DEBUG
-
-		internal void UpdateText()
+		private Size UpdateText()
 		{
 #if DEBUG
 			var sw = System.Diagnostics.Stopwatch.StartNew();
 #endif // DEBUG
 
-			this.measuredSize = new Size(0, 0);
+			var measuredSize = new Size(0, 0);
 
 			Paragraph lastP = null;
 
-			if (this.size.Width > 0 && this.size.Height > 0)
+			if (Size.Width > 0 && Size.Height > 0)
 			{
 				// RGFloat y = 0;
-				var rs = new RelayoutSession(this.size);
+				var rs = new RelayoutSession(Size);
 
 				if (this.RotationAngle > 0)
 				{
@@ -542,26 +481,22 @@ namespace unvell.ReoGrid.Drawing
 					lastP = p;
 				}
 
-				this.measuredSize = rs.measuredSize;
+				measuredSize = rs.measuredSize;
 			}
 
 #if DEBUG
 			sw.Stop();
-			this.lastUpdateMS = sw.ElapsedMilliseconds;
-			if (this.lastUpdateMS > 10)
+			if (sw.ElapsedMilliseconds > 10)
 			{
-				Logger.Log("richtext", "update all text takes " + this.lastUpdateMS + " ms.");
+				Logger.Log("richtext", "update all text takes " + sw.ElapsedMilliseconds + " ms.");
 			}
 #endif // DEBUG
+			return measuredSize;
 		}
 
-		private string textBuffer = string.Empty;
 		#endregion // Update
 
 		#region ToString
-		internal bool sbDirty = true;
-
-		private StringBuilder sb = null;
 
 		/// <summary>
 		/// Convert rich format text to plain text.
@@ -569,35 +504,19 @@ namespace unvell.ReoGrid.Drawing
 		/// <returns>Plain text converted from this rich format text.</returns>
 		public override string ToString()
 		{
-			if (this.sbDirty)
+			var sb = new StringBuilder(256);
+			foreach (var p in this.paragraphs)
 			{
-				if (this.sb == null)
+				if (sb.Length > 0)
 				{
-					this.sb = new StringBuilder(256);
+					sb.Append(Environment.NewLine);
 				}
-				else
+				foreach (var r in p.Runs)
 				{
-					this.sb.Remove(0, this.sb.Length);
+					sb.Append(r.Text);
 				}
-
-				foreach (var p in this.paragraphs)
-				{
-					if (sb.Length > 0)
-					{
-						sb.Append(Environment.NewLine);
-					}
-
-					foreach (var r in p.Runs)
-					{
-						sb.Append(r.Text);
-					}
-				}
-
-				this.textBuffer = sb.ToString();
-				this.sbDirty = false;
 			}
-
-			return this.textBuffer;
+			return sb.ToString();
 		}
 
 		/// <summary>
@@ -630,6 +549,11 @@ namespace unvell.ReoGrid.Drawing.Text
 		public RGFloat ParagraphStartSpacing { get; set; }
 
 		public RGFloat ParagraphEndSpacing { get; set; }
+
+		public override bool Equals(object obj)
+		{
+			return obj is Paragraph other ? Enumerable.SequenceEqual(runs, other.runs) : false;
+		}
 
 		#endregion // Attributes
 
@@ -685,10 +609,7 @@ namespace unvell.ReoGrid.Drawing.Text
 			SolidColor? textColor = null, SolidColor? backColor = null)
 		{
 			Run lastRun = this.GetOrCreateLastRun(fontName, fontSize, fontStyles, textColor, backColor);
-
 			lastRun.Text += text;
-
-			this.rt.sbDirty = true;
 		}
 
 		internal Run GetOrCreateLastRun(string fontName = null, RGFloat? fontSize = null, FontStyles? fontStyles = null,
@@ -1064,6 +985,17 @@ namespace unvell.ReoGrid.Drawing.Text
 		internal List<double> TextSizes { get; private set; }
 		internal List<ushort> GlyphIndexes { get; private set; }
 #endif // WPF
+
+		public override bool Equals(object obj)
+		{
+			return obj is Run other ?
+				object.Equals(FontName, other.FontName) &&
+				object.Equals(FontSize, other.FontSize) &&
+				object.Equals(FontStyles, other.FontStyles) &&
+				object.Equals(TextColor, other.TextColor) &&
+				object.Equals(BackColor, other.BackColor) &&
+				object.Equals(text, other.text) : false;
+		}
 
 		#region Font Info
 		private BoxFontInfo fontInfo = null;

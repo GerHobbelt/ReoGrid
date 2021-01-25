@@ -69,6 +69,9 @@ namespace unvell.ReoGrid.IO.OpenXML.Schema
 
 		internal const string Theme_________ = "application/vnd.openxmlformats-officedocument.theme+xml";
 		internal const string Workbook______ = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml";
+		internal const string Template______ = "application/vnd.openxmlformats-officedocument.spreadsheetml.template.main+xml";
+		internal const string MacroWorkbook_ = "application/vnd.ms-excel.sheet.macroEnabled.main+xml";
+		internal const string MacroTemplate_ = "application/vnd.ms-excel.template.macroEnabled.main+xml";
 		internal const string Worksheet_____ = "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml";
 		internal const string Styles________ = "application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml";
 		internal const string SharedStrings_ = "application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml";
@@ -1532,6 +1535,9 @@ namespace unvell.ReoGrid.IO.OpenXML.Schema
 		[XmlElement("sz")]
 		public ElementValue<string> size;
 
+		[XmlElement("strike")]
+		public ElementValue<string> strike;
+
 		[XmlElement("b")]
 		public ElementValue<string> b;
 
@@ -1613,8 +1619,23 @@ namespace unvell.ReoGrid.IO.OpenXML.Schema
 		public Chart chart;
 	}
 
+	public class TitleText
+	{
+		[XmlElement("rich")]
+		public TextBody rich;
+	}
+
+	public class Title
+	{
+		[XmlElement("tx")]
+		public TitleText tx;
+	}
+
 	public class Chart
 	{
+		[XmlElement("title")]
+		public Title title;
+
 		[XmlElement("plotArea")]
 		public PlotArea plotArea;
 
@@ -1633,11 +1654,17 @@ namespace unvell.ReoGrid.IO.OpenXML.Schema
 		[XmlElement("pieChart")]
 		public PieChart pieChart;
 
+		[XmlElement("radarChart")]
+		public RadarChart radarChart;
+
 		[XmlElement("doughnutChart")]
 		public PieChart doughnutChart;
 
 		[XmlElement("areaChart")]
 		public AreaChart areaChart;
+
+		[XmlElement("scatterChart")]
+		public ScatterChart scatterChart;
 
 		[XmlElement("valAx")]
 		public ValueAxis valueAxis;
@@ -1647,7 +1674,7 @@ namespace unvell.ReoGrid.IO.OpenXML.Schema
 	public class LineChart
 	{
 		[XmlElement("ser")]
-		public List<LineChartSerial> serials;
+		public List<ChartSerial> serials;
 
 		[XmlElement("dLbls")]
 		public DataLabels labels;
@@ -1659,7 +1686,7 @@ namespace unvell.ReoGrid.IO.OpenXML.Schema
 		public ElementValue<string> barDir;
 
 		[XmlElement("ser")]
-		public List<BarChartSerial> serials;
+		public List<ChartSerial> serials;
 
 		[XmlElement("dLbls")]
 		public DataLabels labels;
@@ -1668,7 +1695,31 @@ namespace unvell.ReoGrid.IO.OpenXML.Schema
 	public class PieChart
 	{
 		[XmlElement("ser")]
-		public List<PieChartSerial> serials;
+		public List<ChartSerial> serials;
+
+		[XmlElement("dLbls")]
+		public DataLabels labels;
+	}
+
+	public class RadarChart
+	{
+		[XmlElement("ser")]
+		public List<ChartSerial> serials;
+	}
+
+	public class ScatterSerials
+	{
+		[XmlElement("xVal")]
+		public ChartDataValues xVal;
+
+		[XmlElement("yVal")]
+		public ChartDataValues yVal;
+	}
+
+	public class ScatterChart
+	{
+		[XmlElement("ser")]
+		public ScatterSerials serials;
 
 		[XmlElement("dLbls")]
 		public DataLabels labels;
@@ -1677,7 +1728,7 @@ namespace unvell.ReoGrid.IO.OpenXML.Schema
 	public class AreaChart
 	{
 		[XmlElement("ser")]
-		public List<AreaChartSerial> serials;
+		public List<ChartSerial> serials;
 
 		[XmlElement("dLbls")]
 		public DataLabels labels;
@@ -1686,67 +1737,38 @@ namespace unvell.ReoGrid.IO.OpenXML.Schema
 	internal interface IChartSerial
 	{
 		ChartText ChartLabel { get; }
+		Categories Categories { get; }
 		ChartDataValues Values { get; }
 	}
 
-	public class LineChartSerial : IChartSerial
+	public class ChartSerial : IChartSerial
 	{
 		[XmlElement("tx")]
 		public ChartText chartLabel;
+
+		[XmlElement("cat")]
+		public Categories categories;
 
 		[XmlElement("val")]
 		public ChartDataValues values;
 
 		[XmlIgnore]
 		public ChartText ChartLabel { get { return this.chartLabel; } }
+
+		[XmlIgnore]
+		public Categories Categories { get { return this.categories; } }
 
 		[XmlIgnore]
 		public ChartDataValues Values { get { return this.values; } }
 	}
 
-	public class BarChartSerial : IChartSerial
+	public class Categories
 	{
-		[XmlElement("tx")]
-		public ChartText chartLabel;
+		[XmlElement("strRef")]
+		public StringReference strRef;
 
-		[XmlElement("val")]
-		public ChartDataValues values;
-
-		[XmlIgnore]
-		public ChartText ChartLabel { get { return this.chartLabel; } }
-
-		[XmlIgnore]
-		public ChartDataValues Values { get { return this.values; } }
-	}
-
-	public class PieChartSerial : IChartSerial
-	{
-		[XmlElement("tx")]
-		public ChartText chartLabel;
-
-		[XmlElement("val")]
-		public ChartDataValues values;
-
-		[XmlIgnore]
-		public ChartText ChartLabel { get { return this.chartLabel; } }
-
-		[XmlIgnore]
-		public ChartDataValues Values { get { return this.values; } }
-	}
-
-	public class AreaChartSerial : IChartSerial
-	{
-		[XmlElement("tx")]
-		public ChartText chartLabel;
-
-		[XmlElement("val")]
-		public ChartDataValues values;
-
-		[XmlIgnore]
-		public ChartText ChartLabel { get { return this.chartLabel; } }
-
-		[XmlIgnore]
-		public ChartDataValues Values { get { return this.values; } }
+		[XmlElement("numRef")]
+		public NumberReference numRef;
 	}
 
 	public class ChartText
@@ -1761,10 +1783,10 @@ namespace unvell.ReoGrid.IO.OpenXML.Schema
 		public ElementText formula;
 
 		[XmlElement("strCache")]
-		public StringCache strCache;
+		public ReferenceCache strCache;
 	}
 
-	public class StringCache
+	public class ReferenceCache
 	{
 		[XmlElement("ptCount")]
 		public ElementValue<int> ptCount;
@@ -1797,6 +1819,9 @@ namespace unvell.ReoGrid.IO.OpenXML.Schema
 	{
 		[XmlElement("f")]
 		public ElementText formula;
+
+		[XmlElement("numCache")]
+		public ReferenceCache numCache;
 	}
 
 	public class NumericPoint

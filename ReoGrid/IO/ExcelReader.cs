@@ -23,6 +23,7 @@ using System.Text;
 using System.IO;
 using System.Diagnostics;
 using System.Text.RegularExpressions;
+using ICSharpCode.SharpZipLib.Zip;
 
 #if WINFORM || ANDROID
 using RGFloat = System.Single;
@@ -40,6 +41,7 @@ using unvell.ReoGrid.Utility;
 using unvell.ReoGrid.IO.OpenXML.Schema;
 using unvell.ReoGrid.Graphics;
 using unvell.ReoGrid.Drawing;
+using System.Globalization;
 
 namespace unvell.ReoGrid.IO.OpenXML
 {
@@ -109,11 +111,8 @@ namespace unvell.ReoGrid.IO.OpenXML
 
 			if (!string.IsNullOrEmpty(sheetName))
 			{
-				if ((sheetName[0] == '\'' && sheetName[0] == '"')
-					|| (sheetName[sheetName.Length - 1] == '\'' && sheetName[sheetName.Length - 1] == '"'))
-				{
-					sheetName = sheetName.Substring(1, sheetName.Length - 2);
-				}
+				if (sheetName[0] == '\'' && sheetName[sheetName.Length - 1] == '\'')
+					sheetName = sheetName.Substring(1, sheetName.Length - 2).Replace("''", "'");
 			}
 
 			var rgSheet = rgBook.GetWorksheetByName(sheetName);
@@ -169,7 +168,10 @@ namespace unvell.ReoGrid.IO.OpenXML
 		{
 			RGWorksheet rgSheet = rgWorkbook.GetWorksheetByName(sheetIndex.name);
 
-			var sheet = doc.LoadRelationResourceById<Schema.Worksheet>(doc.Workbook, sheetIndex.resId);
+			var sheet = doc.LoadRelationResource<Schema.Worksheet>(doc.Workbook,
+				_r => _r.id == sheetIndex.resId && _r.type == OpenXMLRelationTypes.worksheets_sheet_);
+			if (sheet == null)
+				return; // Could be a chartsheet which ReoGrid does not support
 
 			const float fixedCharWidth = 7.0f; //ResourcePoolManager.Instance.GetFont("Arial", 10f, System.Drawing.FontStyle.Regular).SizeInPoints;
 
@@ -191,7 +193,8 @@ namespace unvell.ReoGrid.IO.OpenXML
 				if (sheetView.zoomScale != null)
 				{
 					double zoom = 100;
-					if (double.TryParse(sheetView.zoomScale, out zoom))
+					if (double.TryParse(sheetView.zoomScale, ExcelWriter.Number,
+						ExcelWriter.EnglishCulture, out zoom))
 					{
 						rgSheet.ScaleFactor = (float)(zoom / 100f);
 					}
@@ -210,7 +213,7 @@ namespace unvell.ReoGrid.IO.OpenXML
 				{
 					double defRowHeight = 4f;
 
-					if (double.TryParse(sheet.sheetFormatProperty.defaultRowHeight, System.Globalization.NumberStyles.Number,
+					if (double.TryParse(sheet.sheetFormatProperty.defaultRowHeight, ExcelWriter.Number,
 						ExcelWriter.EnglishCulture, out defRowHeight))
 					{
 						defaultRowHeight = (ushort)Math.Round(defRowHeight * dpi / 72.0);
@@ -222,7 +225,7 @@ namespace unvell.ReoGrid.IO.OpenXML
 				{
 					double defColumnWidth = 0;
 
-					if (double.TryParse(sheet.sheetFormatProperty.defaultColumnWidth, System.Globalization.NumberStyles.Number,
+					if (double.TryParse(sheet.sheetFormatProperty.defaultColumnWidth, ExcelWriter.Number,
 						ExcelWriter.EnglishCulture, out defColumnWidth))
 					{
 						ushort pixelWidth = (ushort)Math.Truncate(((256 * defColumnWidth + Math.Truncate(128 / fixedCharWidth)) / 256) * fixedCharWidth);
@@ -241,6 +244,16 @@ namespace unvell.ReoGrid.IO.OpenXML
 			int sheetRowCount = sheet.rows.Count;
 			int sheetColCount = sheet.cols.Count;
 
+			// cope with omitted row elements
+			foreach (var row in sheet.rows)
+				if (sheetRowCount < row.index)
+					sheetRowCount = row.index;
+
+			// cope with omitted col elements
+			foreach (var col in sheet.cols)
+				if (sheetColCount < col.max)
+					sheetColCount = col.max;
+
 			if (sheet.dimension != null && !string.IsNullOrEmpty(sheet.dimension.address))
 			{
 				RangePosition contentRange = new RangePosition(sheet.dimension.address);
@@ -250,15 +263,30 @@ namespace unvell.ReoGrid.IO.OpenXML
 			}
 
 			if (rgSheet.RowCount < sheetRowCount)
-			{
-				rgSheet.Rows = sheetRowCount;
-			}
+				rgSheet.RowCount = sheetRowCount;
 
 			if (rgSheet.ColumnCount < sheetColCount)
-			{
-				rgSheet.Columns = sheetColCount;
-			}
+				rgSheet.ColumnCount = sheetColCount;
 			#endregion // Resize
+
+			// stylesheet
+			var styles = doc.LoadEntryFile<Stylesheet>(doc.Workbook._path, "styles.xml");
+			doc.Stylesheet = styles;
+
+			// fonts
+			var fonts = styles.fonts;
+
+			// borders
+			var borders = styles.borders;
+
+			// fills
+			var fills = styles.fills;
+
+			// cell formats
+			var cellFormats = styles.cellFormats;
+
+			int maxHBorderRow = -1, maxHBorderCol = -1;
+			int maxVBorderRow = -1, maxVBorderCol = -1;
 
 			#region Columns
 			// columns
@@ -278,40 +306,132 @@ namespace unvell.ReoGrid.IO.OpenXML
 					int startCol = col.min - 1;
 					int count = col.max - col.min + 1;
 
-					if (startCol + count > rgSheet.ColumnCount) count = rgSheet.ColumnCount - startCol;
-
 					rgSheet.SetColumnsWidth(startCol, count, pixelWidth);
 
+					bool isAutoWidth = !OpenXMLUtility.IsTrue(col.customWidth);
 					for (int i = startCol; i < startCol + count; i++)
 					{
-						var header = rgSheet.GetColumnHeader(i);
+						rgSheet.GetColumnHeader(i).IsAutoWidth = isAutoWidth;
+					}
 
-						header.IsAutoWidth = !OpenXMLUtility.IsTrue(col.customWidth);
+					WorksheetRangeStyle colStyle = null;
+
+					int styleIndex = -1;
+
+					// column style
+					if (!string.IsNullOrEmpty(col.style) && int.TryParse(col.style, out styleIndex))
+					{
+						var style = cellFormats.list.ElementAtOrDefault(styleIndex);
+
+						if (style != null)
+						{
+							if (!style._preprocessed)
+							{
+								PreprocessCellStyle(doc, rgSheet, style, fonts, fills);
+							}
+
+							if (style._cachedStyleSet != null)
+							{
+								colStyle = style._cachedStyleSet;
+								for (var colCurrent = col.min; colCurrent <= col.max; ++colCurrent)
+								{
+									var colIndex = colCurrent - 1;
+									rgSheet.RetrieveColumnHeader(colIndex).InnerStyle = new WorksheetRangeStyle(colStyle);
+									if (//style.applyBorder == "1" && 
+										!string.IsNullOrEmpty(style.borderId))
+									{
+										int id = 0;
+										if (int.TryParse(style.borderId, out id)
+											&& id >= 0 && id < borders.Count)
+										{
+											var border = borders[id];
+
+											if (border != null)
+											{
+												if (!border._preprocessed)
+												{
+													PreprocessCellBorders(doc, border);
+												}
+
+												if (border._hasTop)
+												{
+													for (int r = 0; r <= rgSheet.RowCount; r++)
+													{
+														var hb = rgSheet.GetHBorder(r, colIndex);
+														hb.Pos |= Core.HBorderOwnerPosition.Top;
+														hb.Style = border._top;
+														hb.Span = 1;
+													}
+
+													if (maxHBorderCol < colIndex)
+														maxHBorderCol = colIndex;
+													maxHBorderRow = rgSheet.RowCount + 1;
+												}
+												else if (border._hasBottom)
+												{
+													for (int r = 1; r <= rgSheet.RowCount; r++)
+													{
+														var hb = rgSheet.GetHBorder(r, colIndex);
+														hb.Pos |= Core.HBorderOwnerPosition.Bottom;
+														hb.Style = border._bottom;
+														hb.Span = 1;
+													}
+
+													if (maxHBorderCol < colIndex)
+														maxHBorderCol = colIndex;
+													maxHBorderRow = rgSheet.RowCount + 1;
+												}
+
+												if (border._hasLeft)
+												{
+													for (int r = 0; r < rgSheet.RowCount; r++)
+													{
+														var vb = rgSheet.GetVBorder(r, colIndex);
+														vb.Pos |= Core.VBorderOwnerPosition.Left;
+														vb.Style = border._left;
+														vb.Span = 1;
+														if (colCurrent == col.max && border._hasRight)
+														{
+															vb = rgSheet.GetVBorder(r, colIndex + 1);
+															vb.Pos |= Core.VBorderOwnerPosition.Left;
+															vb.Style = border._left;
+															vb.Span = 1;
+														}
+													}
+
+													if (maxVBorderCol < colIndex + 1)
+														maxVBorderCol = colIndex + 1;
+													maxVBorderRow = rgSheet.RowCount;
+												}
+												else if (border._hasRight)
+												{
+													for (int r = 0; r < rgSheet.RowCount; r++)
+													{
+														var vb = rgSheet.GetVBorder(r, colIndex + 1);
+														vb.Pos |= Core.VBorderOwnerPosition.Right;
+														vb.Style = border._right;
+														vb.Span = 1;
+													}
+
+													if (maxVBorderCol < colIndex + 1)
+														maxVBorderCol = colIndex + 1;
+													maxVBorderRow = rgSheet.RowCount;
+												}
+											}
+										}
+									}
+								}
+							}
+						}
 					}
 				}
 			}
 			#endregion // Columns
 
-			// stylesheet
-			var styles = doc.LoadEntryFile<Stylesheet>(doc.Workbook._path, "styles.xml");
-			doc.Stylesheet = styles;
-
-			// fonts
-			var fonts = styles.fonts;
-
-			// borders
-			var borders = styles.borders;
-
-			// fills
-			var fills = styles.fills;
-
-			// cell formats
-			var cellFormats = styles.cellFormats;
-
 			// data
 			SharedStrings sharedStringTable = doc.ReadSharedStringTable();
 
-			var defaultFont = fonts.list.ElementAtOrDefault(0) as Schema.Font;
+			var defaultFont = fonts.list.ElementAtOrDefault(0);
 			if (defaultFont != null)
 			{
 				SetStyleFont(doc, rgSheet.RootStyle, defaultFont);
@@ -337,9 +457,6 @@ namespace unvell.ReoGrid.IO.OpenXML
 			int rowTop = rgSheet.GetRowHeader(0).Top;
 			int lastRowIndex = -1;
 
-			int maxHBorderRow = -1, maxHBorderCol = -1;
-			int maxVBorderRow = -1, maxVBorderCol = -1;
-
 			#region Rows
 
 			foreach (Row row in sheet.rows)
@@ -347,7 +464,6 @@ namespace unvell.ReoGrid.IO.OpenXML
 				int rowIndex = row.index - 1;
 
 				#region Row Height
-
 #if DEBUG
 				swRowHeight.Start();
 #endif // DEBUG
@@ -371,44 +487,26 @@ namespace unvell.ReoGrid.IO.OpenXML
 				double rowHeight = 0;
 				bool isHidden = OpenXMLUtility.IsTrue(row.hidden);
 
-				RowHeader rowHeader;
+				RowHeader rowHeader = rgSheet.GetRowHeader(rowIndex);
+				rowHeader.Top = rowTop;
 
-				if (//row.customHeight == "1"
-						//&& 
-					!string.IsNullOrEmpty(row.height) && double.TryParse(row.height, out rowHeight))
+				ushort height = defaultRowHeight;
+				if (//row.customHeight == "1" && 
+					!string.IsNullOrEmpty(row.height) && double.TryParse(row.height, ExcelWriter.Number,
+					ExcelWriter.EnglishCulture, out rowHeight))
 				{
-					rowHeader = rgSheet.GetRowHeader(rowIndex);
-					ushort height = (ushort)Math.Round(rowHeight * dpi / 72f);
+					height = (ushort)Math.Round(rowHeight * dpi / 72f);
+				}
 
-					rowHeader.Top = rowTop;
-
-					if (isHidden)
-					{
-						rowHeader.LastHeight = height;
-						rowHeader.InnerHeight = 0;
-					}
-					else
-					{
-						rowHeader.InnerHeight = height;
-						rowTop += height;
-					}
+				if (isHidden)
+				{
+					rowHeader.LastHeight = height;
+					rowHeader.InnerHeight = 0;
 				}
 				else
 				{
-					rowHeader = rgSheet.GetRowHeader(rowIndex);
-
-					rowHeader.Top = rowTop;
-
-					if (isHidden)
-					{
-						rowHeader.LastHeight = defaultRowHeight;
-						rowHeader.InnerHeight = 0;
-					}
-					else
-					{
-						rowHeader.InnerHeight = defaultRowHeight;
-						rowTop += defaultRowHeight;
-					}
+					rowHeader.InnerHeight = height;
+					rowTop += height;
 				}
 
 				rowHeader.IsAutoHeight = !OpenXMLUtility.IsTrue(row.customHeight);
@@ -433,7 +531,7 @@ namespace unvell.ReoGrid.IO.OpenXML
 				// row style
 				if (!string.IsNullOrEmpty(row.styleIndex) && int.TryParse(row.styleIndex, out styleIndex))
 				{
-					var style = cellFormats.list.ElementAtOrDefault(styleIndex) as CellFormat;
+					var style = cellFormats.list.ElementAtOrDefault(styleIndex);
 
 					if (style != null)
 					{
@@ -466,21 +564,28 @@ namespace unvell.ReoGrid.IO.OpenXML
 
 									if (border._hasTop)
 									{
-										for (int c = 0; c < rgSheet.Columns; c++)
+										for (int c = 0; c < rgSheet.ColumnCount; c++)
 										{
 											var hb = rgSheet.GetHBorder(rowIndex, c);
 											hb.Pos |= Core.HBorderOwnerPosition.Top;
 											hb.Style = border._top;
 											hb.Span = 1;
+											if (border._hasBottom)
+											{
+												hb = rgSheet.GetHBorder(rowIndex + 1, c);
+												hb.Pos |= Core.HBorderOwnerPosition.Top;
+												hb.Style = border._top;
+												hb.Span = 1;
+											}
 										}
 
-										if (maxHBorderRow < rowIndex) maxHBorderRow = rowIndex;
-										maxHBorderCol = rgSheet.Columns;
+										if (maxHBorderRow < rowIndex + 1)
+											maxHBorderRow = rowIndex + 1;
+										maxHBorderCol = rgSheet.ColumnCount;
 									}
-
-									if (border._hasBottom)
+									else if (border._hasBottom)
 									{
-										for (int c = 0; c < rgSheet.Columns; c++)
+										for (int c = 0; c < rgSheet.ColumnCount; c++)
 										{
 											var hb = rgSheet.GetHBorder(rowIndex + 1, c);
 											hb.Pos |= Core.HBorderOwnerPosition.Bottom;
@@ -488,13 +593,14 @@ namespace unvell.ReoGrid.IO.OpenXML
 											hb.Span = 1;
 										}
 
-										if (maxHBorderRow < rowIndex + 1) maxHBorderRow = rowIndex + 1;
-										maxHBorderCol = rgSheet.Columns;
+										if (maxHBorderRow < rowIndex + 1)
+											maxHBorderRow = rowIndex + 1;
+										maxHBorderCol = rgSheet.ColumnCount;
 									}
 
 									if (border._hasLeft)
 									{
-										for (int c = 0; c < rgSheet.Columns; c++)
+										for (int c = 0; c <= rgSheet.ColumnCount; c++)
 										{
 											var vb = rgSheet.GetVBorder(rowIndex, c);
 											vb.Pos |= Core.VBorderOwnerPosition.Left;
@@ -502,22 +608,23 @@ namespace unvell.ReoGrid.IO.OpenXML
 											vb.Span = 1;
 										}
 
-										if (maxVBorderRow < rowIndex) maxVBorderRow = rowIndex;
-										maxVBorderCol = rgSheet.Columns;
+										if (maxVBorderRow < rowIndex)
+											maxVBorderRow = rowIndex;
+										maxVBorderCol = rgSheet.ColumnCount + 1;
 									}
-
-									if (border._hasRight)
+									else if (border._hasRight)
 									{
-										for (int c = 0; c < rgSheet.Columns; c++)
+										for (int c = 1; c <= rgSheet.ColumnCount; c++)
 										{
-											var vb = rgSheet.GetVBorder(rowIndex, c + 1);
+											var vb = rgSheet.GetVBorder(rowIndex, c);
 											vb.Pos |= Core.VBorderOwnerPosition.Right;
 											vb.Style = border._right;
 											vb.Span = 1;
 										}
 
-										if (maxVBorderRow < rowIndex) maxVBorderRow = rowIndex;
-										maxVBorderCol = rgSheet.Columns + 1;
+										if (maxVBorderRow < rowIndex)
+											maxVBorderRow = rowIndex;
+										maxVBorderCol = rgSheet.ColumnCount + 1;
 									}
 								}
 							}
@@ -541,12 +648,6 @@ namespace unvell.ReoGrid.IO.OpenXML
 						rgCell = rgSheet.CreateCell(pos.Row, pos.Col);
 						rgSheet.cells[pos.Row, pos.Col] = rgCell;
 					}
-					else
-					{
-						//var rowHeader = rgSheet.rows[pos.Row];
-						rgCell.Top = rowHeader.Top;
-						rgCell.Height = rowHeader.InnerHeight + 1;
-					}
 
 #if DEBUG
 					Debug.Assert(rgCell.Height == rgSheet.GetRowHeader(pos.Row).InnerHeight + 1);
@@ -561,7 +662,7 @@ namespace unvell.ReoGrid.IO.OpenXML
 #if DEBUG
 						swStyle.Start();
 #endif // DEBUG
-						style = cellFormats.list.ElementAtOrDefault(styleIndex) as CellFormat;
+						style = cellFormats.list.ElementAtOrDefault(styleIndex);
 #if DEBUG
 						swStyle.Stop();
 #endif // DEBUG
@@ -633,19 +734,26 @@ namespace unvell.ReoGrid.IO.OpenXML
 										hb.Style = border._top;
 										hb.Span = 1;
 
-										if (maxHBorderRow < pos.Row) maxHBorderRow = pos.Row;
-										if (maxHBorderCol < pos.Col) maxHBorderCol = pos.Col;
+										if (maxHBorderRow < pos.Row)
+											maxHBorderRow = pos.Row;
+										if (maxHBorderCol < pos.Col)
+											maxHBorderCol = pos.Col;
 									}
 
 									if (border._hasBottom)
 									{
 										var hb = rgSheet.GetHBorder(pos.Row + 1, pos.Col);
-										hb.Pos |= Core.HBorderOwnerPosition.Bottom;
-										hb.Style = border._bottom;
-										hb.Span = 1;
+										if (hb.Pos == 0)
+										{
+											hb.Pos |= Core.HBorderOwnerPosition.Bottom;
+											hb.Style = border._bottom;
+											hb.Span = 1;
+										}
 
-										if (maxHBorderRow < pos.Row + 1) maxHBorderRow = pos.Row + 1;
-										if (maxHBorderCol < pos.Col) maxHBorderCol = pos.Col;
+										if (maxHBorderRow < pos.Row + 1)
+											maxHBorderRow = pos.Row + 1;
+										if (maxHBorderCol < pos.Col)
+											maxHBorderCol = pos.Col;
 									}
 
 									if (border._hasLeft)
@@ -655,19 +763,26 @@ namespace unvell.ReoGrid.IO.OpenXML
 										vb.Style = border._left;
 										vb.Span = 1;
 
-										if (maxVBorderRow < pos.Row) maxVBorderRow = pos.Row;
-										if (maxVBorderCol < pos.Col) maxVBorderCol = pos.Col;
+										if (maxVBorderRow < pos.Row)
+											maxVBorderRow = pos.Row;
+										if (maxVBorderCol < pos.Col)
+											maxVBorderCol = pos.Col;
 									}
 
 									if (border._hasRight)
 									{
 										var vb = rgSheet.GetVBorder(pos.Row, pos.Col + 1);
-										vb.Pos |= Core.VBorderOwnerPosition.Right;
-										vb.Style = border._right;
-										vb.Span = 1;
+										if (vb.Pos == 0)
+										{
+											vb.Pos |= Core.VBorderOwnerPosition.Right;
+											vb.Style = border._right;
+											vb.Span = 1;
+										}
 
-										if (maxVBorderRow < pos.Row) maxVBorderRow = pos.Row;
-										if (maxVBorderCol < pos.Col + 1) maxVBorderCol = pos.Col + 1;
+										if (maxVBorderRow < pos.Row)
+											maxVBorderRow = pos.Row;
+										if (maxVBorderCol < pos.Col + 1)
+											maxVBorderCol = pos.Col + 1;
 									}
 								}
 							}
@@ -743,14 +858,7 @@ namespace unvell.ReoGrid.IO.OpenXML
 						}
 					}
 
-					if (rgCell.DataFormat == CellDataFormatFlag.DateTime)
-					{
-						rgCell.Data = DataFormatterManager.Instance.DataFormatters[CellDataFormatFlag.DateTime].FormatCell(rgCell);
-					}
-					else
-					{
-						DataFormatterManager.Instance.FormatCell(rgCell);
-					}
+					DataFormatterManager.Instance.FormatCell(rgCell, ExcelWriter.EnglishCulture);
 
 #endregion // Data Format
 
@@ -824,7 +932,7 @@ namespace unvell.ReoGrid.IO.OpenXML
 
 #region Normalize Row Heights
 			//int offset = 0;
-			for (int i = lastRowIndex + 1; i < rgSheet.Rows; i++)
+			for (int i = lastRowIndex + 1; i < rgSheet.RowCount; i++)
 			{
 				var rowHeader = rgSheet.GetRowHeader(i);
 				rowHeader.Top = rowTop;
@@ -1048,7 +1156,7 @@ namespace unvell.ReoGrid.IO.OpenXML
 			}
 
 			float v;
-			if (font.size != null && float.TryParse(font.size, System.Globalization.NumberStyles.Float,
+			if (font.size != null && float.TryParse(font.size, NumberStyles.Float,
 				ExcelWriter.EnglishCulture, out v))
 			{
 				styleset.Flag |= PlainStyleFlag.FontSize;
@@ -1102,7 +1210,7 @@ namespace unvell.ReoGrid.IO.OpenXML
 			if (//style.applyFont == "1" && 
 				!string.IsNullOrEmpty(style.fontId))
 			{
-				var font = fonts.list.ElementAtOrDefault(int.Parse(style.fontId)) as Schema.Font;
+				var font = fonts.list.ElementAtOrDefault(int.Parse(style.fontId));
 
 				if (font != null)
 				{
@@ -1116,7 +1224,7 @@ namespace unvell.ReoGrid.IO.OpenXML
 			if (//OpenXMLUtility.IsTrue(style.applyFill) &&
 				!string.IsNullOrEmpty(style.fillId))
 			{
-				var fill = fills.list.ElementAtOrDefault(int.Parse(style.fillId)) as Fill;
+				var fill = fills.list.ElementAtOrDefault(int.Parse(style.fillId));
 
 				if (fill != null && fill.patternFill != null && fill.patternFill.patternType != null)
 				{
@@ -1168,10 +1276,9 @@ namespace unvell.ReoGrid.IO.OpenXML
 				// vertical alignment
 				if (!string.IsNullOrEmpty(style.alignment.horizontal))
 				{
-					ReoGridHorAlign halign = ReoGridHorAlign.Left;
+					ReoGridHorAlign halign = ReoGridHorAlign.General;
 					switch (style.alignment.horizontal)
 					{
-						default:
 						case "left":
 							halign = ReoGridHorAlign.Left;
 							break;
@@ -1274,7 +1381,7 @@ namespace unvell.ReoGrid.IO.OpenXML
 			int rgbValue;
 
 			if (!string.IsNullOrEmpty(color.rgb)
-				&& int.TryParse(color.rgb, System.Globalization.NumberStyles.AllowHexSpecifier, null, out rgbValue))
+				&& int.TryParse(color.rgb, NumberStyles.AllowHexSpecifier, null, out rgbValue))
 			{
 				rgColor = SolidColor.FromRGB(rgbValue);
 				return true;
@@ -1311,7 +1418,8 @@ namespace unvell.ReoGrid.IO.OpenXML
 							default: rgColor = SolidColor.Black; break;
 						}
 
-						if (double.TryParse(color.tint, out tint))
+						if (double.TryParse(color.tint, ExcelWriter.Number,
+							ExcelWriter.EnglishCulture, out tint))
 						{
 							HSLColor hlsColor = ColorUtility.RGBToHSL(rgColor);
 							hlsColor.L = ColorUtility.CalculateFinalLumValue((float)tint, (float)hlsColor.L * 255f) / 255f;
@@ -1345,7 +1453,7 @@ namespace unvell.ReoGrid.IO.OpenXML
 								&& doc.Stylesheet.colors.indexedColors != null
 								&& colorIndex < doc.Stylesheet.colors.indexedColors.Count
 								&& int.TryParse(doc.Stylesheet.colors.indexedColors[colorIndex].rgb,
-									System.Globalization.NumberStyles.AllowHexSpecifier, null, out rgbValue))
+									NumberStyles.AllowHexSpecifier, null, out rgbValue))
 							{
 								rgColor = SolidColor.FromArgb(rgbValue);
 								return true;
@@ -1372,31 +1480,6 @@ namespace unvell.ReoGrid.IO.OpenXML
 			border._hasLeft = ConvertFromExcelBorder(doc, border.left, ref border._left);
 			border._hasRight = ConvertFromExcelBorder(doc, border.right, ref border._right);
 			border._preprocessed = true;
-		}
-
-		private static void SetRGRangeBorders(Document doc, RGWorksheet rgSheet, RangePosition range, Border border)
-		{
-			RangeBorderStyle posStyle = new RangeBorderStyle();
-
-			if (ConvertFromExcelBorder(doc, border.top, ref posStyle))
-			{
-				rgSheet.SetRangeBorders(range, BorderPositions.Top, posStyle, false);
-			}
-
-			if (ConvertFromExcelBorder(doc, border.bottom, ref posStyle))
-			{
-				rgSheet.SetRangeBorders(range, BorderPositions.Bottom, posStyle, false);
-			}
-
-			if (ConvertFromExcelBorder(doc, border.left, ref posStyle))
-			{
-				rgSheet.SetRangeBorders(range, BorderPositions.Left, posStyle, false);
-			}
-
-			if (ConvertFromExcelBorder(doc, border.right, ref posStyle))
-			{
-				rgSheet.SetRangeBorders(range, BorderPositions.Right, posStyle, false);
-			}
 		}
 
 		private static bool ConvertFromExcelBorder(Document doc, SideBorder sideBorder, ref RangeBorderStyle rgStyle)
@@ -1470,9 +1553,8 @@ namespace unvell.ReoGrid.IO.OpenXML
 
 #region Data Format
 
-		//private static Regex numberFormatRegex = new Regex("0*\\.{[0]+}");
-
-		private static Regex currencyFormatRegex = new Regex(@"([^\\\s]*)\\?(\s*)\[\$([^(\-|\])]+)-?[^\]]*\]\\?(\s*)([^\\\s]*)", RegexOptions.Compiled);
+		private static char[] dateFormatChars = new char[] { 'm', 'h', 's', 'y', 'd', 'M', 'H', 'S', 'Y', 'D' };
+		private static Regex currencyFormatRegex = new Regex(@"([^\\\s]*)\\?(\s*)\[\$([^(\-|\])]+)-?([^\]]*)\]\\?(\s*)([^\\\s]*)", RegexOptions.Compiled);
 
 		private static NumberDataFormatter.INumberFormatArgs ReadNumberFormatArgs(string pattern, NumberDataFormatter.INumberFormatArgs arg)
 		{
@@ -1486,29 +1568,33 @@ namespace unvell.ReoGrid.IO.OpenXML
 				pattern = pattern.Substring(5);
 			}
 
-			if (pattern.StartsWith("\""))
+			int i, j;
+			while ((i = pattern.IndexOf('"')) != -1 && (j = pattern.IndexOf('"', i + 1)) != -1)
 			{
-				int index = pattern.IndexOf('"', 1);
-
-				string prefix = pattern.Substring(1, index - 1);
-
-				if (prefix == "▲ ")
+				string enquoted = pattern.Substring(i + 1, j - i - 1);
+				if (i == 0)
 				{
-					// add sankaku symbol
-					arg.NegativeStyle |= NumberDataFormatter.NumberNegativeStyle.Prefix_Sankaku;
+					if (enquoted == "▲ ")
+					{
+						// add sankaku symbol
+						arg.NegativeStyle |= NumberDataFormatter.NumberNegativeStyle.Prefix_Sankaku;
 
-					// remove minus symbol
-					arg.NegativeStyle &= ~NumberDataFormatter.NumberNegativeStyle.Minus;
+						// remove minus symbol
+						arg.NegativeStyle &= ~NumberDataFormatter.NumberNegativeStyle.Minus;
+					}
+					else
+					{
+						arg.CustomNegativePrefix = enquoted;
+					}
 				}
 				else
 				{
-					arg.CustomNegativePrefix = prefix;
+					arg.CustomNegativePostfix = enquoted;
 				}
-
-				pattern = pattern.Substring(index + 1);
+				pattern = pattern.Remove(i, j + 1 - i);
 			}
 
-			if (pattern.StartsWith("\\(") && pattern.EndsWith("\\)"))
+			if (pattern.StartsWith("(") && pattern.EndsWith(")"))
 			{
 				// add bracket style
 				arg.NegativeStyle |= NumberDataFormatter.NumberNegativeStyle.Brackets;
@@ -1516,25 +1602,22 @@ namespace unvell.ReoGrid.IO.OpenXML
 				// remove minus symbol
 				arg.NegativeStyle &= ~NumberDataFormatter.NumberNegativeStyle.Minus;
 
-				pattern = pattern.Substring(2, pattern.Length - 4);
+				pattern = pattern.Substring(1, pattern.Length - 2);
 			}
 
-			var culture = System.Threading.Thread.CurrentThread.CurrentCulture;
-
-			int len = pattern.Length;
-
-			int decimalSeparatorIndex = pattern.LastIndexOf(culture.NumberFormat.NumberDecimalSeparator, len - 1);
-
-			if (decimalSeparatorIndex >= 0 && decimalSeparatorIndex < len - 1)
+			pattern = pattern.Replace("_0", "");
+			int decimalSeparatorIndex = pattern.LastIndexOf(ExcelWriter.EnglishCulture.NumberFormat.NumberDecimalSeparator);
+			int lastDecimalIndex = pattern.LastIndexOf("0");
+			if (decimalSeparatorIndex >= 0 && decimalSeparatorIndex < lastDecimalIndex)
 			{
-				arg.DecimalPlaces = (short)(len - 1 - decimalSeparatorIndex);
+				arg.DecimalPlaces = (short)(lastDecimalIndex - decimalSeparatorIndex);
 			}
 			else
 			{
 				arg.DecimalPlaces = 0;
 			}
 
-			arg.UseSeparator = (pattern.IndexOf(culture.NumberFormat.NumberGroupSeparator) > 0);
+			arg.UseSeparator = (pattern.IndexOf(ExcelWriter.EnglishCulture.NumberFormat.NumberGroupSeparator) > 0);
 
 			return arg;
 		}
@@ -1572,44 +1655,17 @@ namespace unvell.ReoGrid.IO.OpenXML
 
 					if (patterns != null && patterns.Length > 0)
 					{
+						var pattern = patterns[patterns.Length > 1 ? 1 : 0];
+						Match currencyMatch = currencyFormatRegex.Match(pattern);
 						object arg = null;
-						Match currencyMatch = null;
-
-						var pattern = patterns[0];
-
-						if (pattern.StartsWith("\"$\""))
-						{
-							flag = CellDataFormatFlag.Currency;
-
-							var carg = (CurrencyDataFormatter.CurrencyFormatArgs)ReadNumberFormatArgs(
-								pattern.Substring(3), new CurrencyDataFormatter.CurrencyFormatArgs());
-
-							carg.PrefixSymbol = "$";
-
-							arg = carg;
-						}
 						// #,##0.00 [$-419E] #,##0.00
-						else if ((currencyMatch = currencyFormatRegex.Match(pattern)).Success)
+						if (currencyMatch.Success)
 						{
 							#region Currency
 							flag = CellDataFormatFlag.Currency;
 							var carg = new CurrencyDataFormatter.CurrencyFormatArgs();
 
-							if (currencyMatch.Groups[1].Length > 0)
-							{
-								if (currencyMatch.Groups[3].Success)
-								{
-									carg.PostfixSymbol = currencyMatch.Groups[3].Value;
-								}
-
-								if (currencyMatch.Groups[2].Length > 0)
-								{
-									carg.PostfixSymbol = currencyMatch.Groups[2].Value + carg.PostfixSymbol;
-								}
-
-								carg = (CurrencyDataFormatter.CurrencyFormatArgs)ReadNumberFormatArgs(currencyMatch.Groups[1].Value, carg);
-							}
-							else if (currencyMatch.Groups[5].Length > 0)
+							if (currencyMatch.Groups[6].Length > 0)
 							{
 								if (currencyMatch.Groups[3].Success)
 								{
@@ -1618,10 +1674,38 @@ namespace unvell.ReoGrid.IO.OpenXML
 
 								if (currencyMatch.Groups[4].Length > 0)
 								{
-									carg.PrefixSymbol += currencyMatch.Groups[4].Value;
+									int culture = 0;
+									if (int.TryParse(currencyMatch.Groups[4].Value, NumberStyles.HexNumber, ExcelWriter.EnglishCulture, out culture))
+										carg.CultureEnglishName = (new CultureInfo(culture)).IetfLanguageTag;
 								}
 
-								carg = (CurrencyDataFormatter.CurrencyFormatArgs)ReadNumberFormatArgs(currencyMatch.Groups[5].Value, carg);
+								if (currencyMatch.Groups[5].Length > 0)
+								{
+									carg.PrefixSymbol += currencyMatch.Groups[5].Value;
+								}
+
+								ReadNumberFormatArgs(currencyMatch.Groups[1].Value + currencyMatch.Groups[6].Value, carg);
+							}
+							else if (currencyMatch.Groups[1].Length > 0)
+							{
+								if (currencyMatch.Groups[3].Success)
+								{
+									carg.PostfixSymbol = currencyMatch.Groups[3].Value;
+								}
+
+								if (currencyMatch.Groups[4].Length > 0)
+								{
+									int culture = 0;
+									if (int.TryParse(currencyMatch.Groups[4].Value, NumberStyles.HexNumber, ExcelWriter.EnglishCulture, out culture))
+										carg.CultureEnglishName = (new CultureInfo(culture)).IetfLanguageTag;
+								}
+
+								if (currencyMatch.Groups[2].Length > 0)
+								{
+									carg.PostfixSymbol = currencyMatch.Groups[2].Value + carg.PostfixSymbol;
+								}
+
+								ReadNumberFormatArgs(currencyMatch.Groups[1].Value, carg);
 							}
 
 							arg = carg;
@@ -1637,24 +1721,47 @@ namespace unvell.ReoGrid.IO.OpenXML
 							arg = ReadNumberFormatArgs(pattern, new NumberDataFormatter.NumberFormatArgs());
 							#endregion // Percent
 						}
-						else if (pattern.Any(c => c == 'm' || c == 'h' || c == 's' || c == 'y' || c == 'd'))
+						else if (patterns[0].IndexOfAny(dateFormatChars) != -1)
 						{
-							pattern = pattern.Replace("yyyy/mm", "yyyy/MM").Replace("mm/yy", "MM/yy")
-											 .Replace("mm/d", "MM/d").Replace("m/d", "M/d")
-											 .Replace("d/mm", "d/MM").Replace("d/m", "d/M")
-											 .Replace("aaa", "ddd");
-
 							flag = CellDataFormatFlag.DateTime;
-
-							arg = new DateTimeDataFormatter.DateTimeFormatArgs
+							var darg = new DateTimeDataFormatter.DateTimeFormatArgs();
+							pattern = patterns[0].ToLowerInvariant();
+							if (pattern.Contains("am/pm"))
 							{
-								Format = pattern,
-							};
+								darg.CultureName = "en-US";
+								pattern = pattern.Replace("am/pm", "tt");
+							}
+							else if (pattern.Contains("a/p"))
+							{
+								darg.CultureName = "en-US";
+								pattern = pattern.Replace("a/p", "t");
+							}
+							else
+							{
+								pattern = pattern.Replace('h', 'H'); // Assume 24h format
+							}
+							// When following a colon, assume M to be the minute not the month
+							pattern = pattern.Replace('m', 'M').Replace(":MM", ":mm").Replace(":M", ":m");
+							int i, j;
+							while ((i = pattern.IndexOf('[')) != -1 && (j = pattern.IndexOf(']', i + 1)) != -1)
+							{
+								string enquoted = pattern.Substring(i + 1, j - i - 1);
+								if (enquoted.StartsWith("$-"))
+								{
+									int culture = 0;
+									if (int.TryParse(enquoted.Substring(2), NumberStyles.HexNumber, ExcelWriter.EnglishCulture, out culture))
+										darg.CultureName = (new CultureInfo(culture & 0xFFFF)).IetfLanguageTag;
+
+								}
+								pattern = pattern.Remove(i, j + 1 - i);
+							}
+							darg.Format = pattern;
+							arg = darg;
 						}
 						else
 						{
 							flag = CellDataFormatFlag.Number;
-							arg = ReadNumberFormatArgs(patterns.Length > 1 ? patterns[1] : patterns[0], new NumberDataFormatter.NumberFormatArgs());
+							arg = ReadNumberFormatArgs(pattern, new NumberDataFormatter.NumberFormatArgs());
 						}
 
 						if (flag != CellDataFormatFlag.General)
@@ -2000,49 +2107,16 @@ namespace unvell.ReoGrid.IO.OpenXML
 				SetDrawingObjectStyle(doc, obj, shape);
 			}
 
-			if (obj is Drawing.Shapes.ShapeObject)
+			if (obj is Drawing.Shapes.ShapeObject rgShape)
 			{
 				// text
 				if (shape.textBody != null)
 				{
 					if (shape.textBody.paragraphs != null)
 					{
-						var rgShape = (Drawing.Shapes.ShapeObject)obj;
-
 						rgShape.RichText = CreateRichTextFromRuns(doc, shape.textBody.paragraphs);
-					var sb = new StringBuilder();
-					RGFloat fontSize = 11.0f;
-
-					foreach (var p in shape.textBody.paragraphs)
-					{
-						if (p.runs != null)
-						{
-							foreach (var r in p.runs)
-							{
-								if (r.text != null
-									&& !string.IsNullOrEmpty(r.text.innerText))
-								{
-									var runPr = r.property;
-
-									if (runPr != null)
-									{
-										int size = 0;
-										if (int.TryParse(runPr.sizeAttr, out size))
-										{
-											fontSize = (float)size / 133f;
-										}
-									}
-
-									sb.Append(r.text.innerText);
-								}
-							}
-
-							sb.Append(Environment.NewLine);
-						}
-					}
-
-					rgShape.Text = sb.ToString();
-					rgShape.FontSize = fontSize;
+						rgShape.RichText.TextWrap = TextWrapMode.WordBreak;
+						rgShape.RichText.VerticalAlignment = ReoGridVerAlign.Top;
 
 						if (shape.textBody.bodyProperty != null)
 						{
@@ -2204,7 +2278,7 @@ namespace unvell.ReoGrid.IO.OpenXML
 							var xmlChart = doc.LoadRelationResourceById<Schema.ChartSpace>(drawingFile, graphic.data.chart.id);
 							if (xmlChart != null)
 							{
-								return LoadChart(rgSheet, xmlChart);
+								return LoadChart(doc, rgSheet, xmlChart);
 							}
 						}
 						break;
@@ -2216,7 +2290,7 @@ namespace unvell.ReoGrid.IO.OpenXML
 #endregion // LoadGraphic
 
 #region Chart
-		private static Chart.Chart LoadChart(RGWorksheet rgSheet, Schema.ChartSpace chartSpace)
+		private static Chart.Chart LoadChart(Document doc, RGWorksheet rgSheet, Schema.ChartSpace chartSpace)
 		{
 			if (chartSpace.chart == null) return null;
 
@@ -2225,185 +2299,213 @@ namespace unvell.ReoGrid.IO.OpenXML
 			var plot = chart.plotArea;
 			if (plot == null) return null;
 
+			var showLegend = chart.legend?.legendPos != null;
+
+			var title = LoadTitle(chart.title);
+
 			Chart.Chart rgChart = null;
-			Chart.WorksheetChartDataSource dataSource = new Chart.WorksheetChartDataSource(rgSheet);
 
 			if (plot.lineChart != null)
 			{
 #region Line Chart Plot Area
-
-				if (plot.lineChart.serials != null)
-				{
-					foreach (var ser in plot.lineChart.serials)
-					{
-						ReadDataSerial(dataSource, rgSheet, ser);
-					}
-				}
-
 				rgChart = new Chart.LineChart()
 				{
-					DataSource = dataSource,
+					DataSource = CreateDataSourceFromSerials(rgSheet, plot.lineChart.serials),
+					ShowLegend = showLegend,
+					Title = title,
 				};
 #endregion // Line Chart Plot Area
 			}
 			else if (plot.barChart != null)
 			{
 #region Column/Bar Chart Plot Area
-				if (plot.barChart.serials != null)
-				{
-					foreach (var ser in plot.barChart.serials)
-					{
-						ReadDataSerial(dataSource, rgSheet, ser);
-					}
-				}
-
 				if (plot.barChart.barDir != null
 					&& plot.barChart.barDir.value == "col")
 				{
-					rgChart = new Chart.ColumnChart();
+					rgChart = new Chart.ColumnChart()
+					{
+						DataSource = CreateDataSourceFromSerials(rgSheet, plot.barChart.serials),
+						ShowLegend = showLegend,
+						Title = title,
+					};
 				}
 				else
 				{
-					rgChart = new Chart.BarChart();
+					rgChart = new Chart.BarChart()
+					{
+						DataSource = CreateDataSourceFromSerials(rgSheet, plot.barChart.serials),
+						ShowLegend = showLegend,
+						Title = title,
+					};
 				}
-
-				rgChart.DataSource = dataSource;
 #endregion // Column Chart Plot Area
+			}
+			else if (plot.radarChart != null)
+			{
+#region Radar Chart Plot Area
+				rgChart = new Chart.BarChart()
+				{
+					DataSource = CreateDataSourceFromSerials(rgSheet, plot.radarChart.serials),
+					ShowLegend = showLegend,
+					Title = title,
+				};
+#endregion // Radar Chart Plot Area
 			}
 			else if (plot.pieChart != null)
 			{
 #region Pie Chart Plot Area
-				if (plot.pieChart.serials != null)
-				{
-					foreach (var ser in plot.pieChart.serials)
-					{
-						ReadDataSerial(dataSource, rgSheet, ser);
-					}
-				}
-
 				rgChart = new Chart.PieChart()
 				{
-					DataSource = dataSource,
+					DataSource = CreateDataSourceFromSerials(rgSheet, plot.pieChart.serials),
+					Title = title,
 				};
 #endregion // Pie Chart Plot Area
 			}
 			else if (plot.doughnutChart != null)
 			{
 #region Doughnut Chart Plot Area
-				if (plot.doughnutChart.serials != null)
-				{
-					foreach (var ser in plot.doughnutChart.serials)
-					{
-						ReadDataSerial(dataSource, rgSheet, ser);
-					}
-				}
-
 				rgChart = new Chart.DoughnutChart()
 				{
-					DataSource = dataSource,
+					DataSource = CreateDataSourceFromSerials(rgSheet, plot.doughnutChart.serials),
+					Title = title,
 				};
 #endregion // Pie Chart Plot Area	
 			}
 			else if (plot.areaChart != null)
 			{
 #region Area Chart Plot Area
-				if (plot.areaChart.serials != null)
-				{
-					foreach (var ser in plot.areaChart.serials)
-					{
-						ReadDataSerial(dataSource, rgSheet, ser);
-					}
-				}
-
 				rgChart = new Chart.AreaChart()
 				{
-					DataSource = dataSource,
+					DataSource = CreateDataSourceFromSerials(rgSheet, plot.areaChart.serials),
+					ShowLegend = showLegend,
+					Title = title,
 				};
 #endregion // Area Chart Plot Area
 			}
-
-			bool showLegend = false;
-
-			if (chart.legend != null)
+			else if (plot.scatterChart != null)
 			{
-				if (chart.legend.legendPos != null)
+#region Scatter Chart Plot Area
+				rgChart = new Chart.ScatterChart()
 				{
-					showLegend = true;
-				}
+					DataSource = CreateDataSourceFromSerials(rgSheet, plot.scatterChart.serials),
+					Title = title,
+				};
+#endregion // Scatter Chart Plot Area
 			}
-
-			rgChart.ShowLegend = showLegend;
 
 			return rgChart;
 		}
 
-		private static Chart.WorksheetChartDataSerial ReadDataSerial(Chart.WorksheetChartDataSource dataSource,
-			RGWorksheet rgSheet, IChartSerial serial)
+		private static string LoadTitle(Title title)
 		{
-			if (serial == null) return null;
+			var paragraphs = title?.tx?.rich?.paragraphs;
+			if (paragraphs == null) return null;
 
-#if FORMULA
-			CellPosition labelAddress = CellPosition.Empty;
-
-			var label = serial.ChartLabel;
-
-			if (label != null
-				&& label.strRef != null)
+			var sb = new StringBuilder(256);
+			foreach (var p in paragraphs)
 			{
-				if (label.strRef.formula != null
-					&& !string.IsNullOrEmpty(label.strRef.formula))
+				if (sb.Length > 0)
 				{
-					var serialNameVal = Formula.Evaluator.Evaluate(rgSheet.workbook, label.strRef.formula);
-
-					if (serialNameVal.type == Formula.FormulaValueType.Cell)
-					{
-						labelAddress = (CellPosition)serialNameVal.value;
-					}
+					sb.Append(Environment.NewLine);
 				}
-
-				//if (label.strRef.strCache != null
-				//	&& label.strRef.strCache.ptList != null
-				//	&& label.strRef.strCache.ptList.Count > 0)
-				//{
-				//	var pt = label.strRef.strCache.ptList[0];
-
-				//	if (pt.value != null)
-				//	{
-				//		serialName = pt.value.val;
-				//	}
-				//}
-			}
-
-			var values = serial.Values;
-
-			if (values.numRef != null
-				&& values.numRef.formula != null
-				&& !string.IsNullOrEmpty(values.numRef.formula))
-			{
-				var dataRangeVal = Formula.Evaluator.Evaluate(rgSheet.workbook, values.numRef.formula);
-
-				if (dataRangeVal.type == Formula.FormulaValueType.Range)
+				foreach (var r in p.runs)
 				{
-					var range = (RangePosition)dataRangeVal.value;
+					sb.Append(r.text.innerText);
+				}
+			}
+			return sb.ToString();
+		}
 
-					if (serial is PieChartSerial)
+		private static Chart.WorksheetChartDataSource CreateDataSourceFromSerials(RGWorksheet rgSheet, IEnumerable<ChartSerial> serials)
+		{
+			Chart.WorksheetChartDataSource dataSource = new Chart.WorksheetChartDataSource(rgSheet);
+#if FORMULA
+			if (serials != null)
+			{
+				foreach (var serial in serials)
+				{
+					if (serial != null)
 					{
-						// transfer to multiple serials
-						for (int r = range.Row; r <= range.EndRow; r++)
+						ReferenceRange labelAddress = null;
+
+						var label = serial.ChartLabel;
+
+						if (!string.IsNullOrEmpty(label?.strRef?.formula))
 						{
-							dataSource.AddSerial(rgSheet, labelAddress, new RangePosition(r, range.Col, 1, 1));
+							var serialNameVal = Formula.Parser.Parse(rgSheet.workbook, null, label.strRef.formula);
+							if (serialNameVal.Type == Formula.STNodeType.CELL)
+							{
+								var node = serialNameVal as Formula.STCellNode;
+								labelAddress = new ReferenceRange(node.Worksheet, node.Position);
+							}
+						}
+
+						var values = serial.Values;
+
+						if (!string.IsNullOrEmpty(values?.numRef?.formula))
+						{
+							var dataRangeVal = Formula.Evaluator.Evaluate(rgSheet.workbook, values.numRef.formula);
+
+							if (dataRangeVal.type == Formula.FormulaValueType.Range)
+							{
+								dataSource.AddSerial(rgSheet, labelAddress, (ReferenceRange)dataRangeVal.value);
+							}
+						}
+
+						var categories = serial.Categories;
+						string formula = categories?.strRef?.formula ?? categories?.numRef?.formula;
+
+						if (!string.IsNullOrEmpty(formula))
+						{
+							var serialNameVal = Formula.Parser.Parse(rgSheet.workbook, null, formula);
+							if (serialNameVal.Type == Formula.STNodeType.CELL)
+							{
+								var node = serialNameVal as Formula.STCellNode;
+								dataSource.CategoryNameRange = new ReferenceRange(node.Worksheet, node.Position);
+							}
+							else if (serialNameVal.Type == Formula.STNodeType.RANGE)
+							{
+								var node = serialNameVal as Formula.STRangeNode;
+								dataSource.CategoryNameRange = new ReferenceRange(node.Worksheet, node.Range);
+							}
 						}
 					}
-					else
+				}
+			}
+#endif // FORMULA
+			return dataSource;
+		}
+
+		private static Chart.WorksheetChartDataSource CreateDataSourceFromSerials(RGWorksheet rgSheet, ScatterSerials serials)
+		{
+			Chart.WorksheetChartDataSource dataSource = new Chart.WorksheetChartDataSource(rgSheet);
+#if FORMULA
+			if (serials != null)
+			{
+				string formula;
+
+				if (!string.IsNullOrEmpty(formula = serials?.xVal?.numRef?.formula))
+				{
+					var dataRangeVal = Formula.Evaluator.Evaluate(rgSheet.workbook, formula);
+
+					if (dataRangeVal.type == Formula.FormulaValueType.Range)
 					{
-						dataSource.AddSerial(rgSheet, labelAddress, range);
+						dataSource.AddSerial(rgSheet, null, (ReferenceRange)dataRangeVal.value);
+					}
+				}
+
+				if (!string.IsNullOrEmpty(formula = serials?.yVal?.numRef?.formula))
+				{
+					var dataRangeVal = Formula.Evaluator.Evaluate(rgSheet.workbook, formula);
+
+					if (dataRangeVal.type == Formula.FormulaValueType.Range)
+					{
+						dataSource.AddSerial(rgSheet, null, (ReferenceRange)dataRangeVal.value);
 					}
 				}
 			}
-
 #endif // FORMULA
-
-			return null;
+			return dataSource;
 		}
 #endregion // Chart
 #endif // DRAWING
@@ -2465,7 +2567,7 @@ namespace unvell.ReoGrid.IO.OpenXML
 
 				if (rpr.size != null)
 				{
-					RGFloat.TryParse(rpr.size, out fontSize);
+					RGFloat.TryParse(rpr.size, ExcelWriter.Number, ExcelWriter.EnglishCulture, out fontSize);
 				}
 				else if (rpr.sizeAttr != null)
 				{
@@ -2487,6 +2589,11 @@ namespace unvell.ReoGrid.IO.OpenXML
 				else if (rpr.solidFill != null)
 				{
 					foreColor = doc.ConvertFromCompColor(rpr.solidFill);
+				}
+
+				if (rpr.strike != null)
+				{
+					fontStyles |= Drawing.Text.FontStyles.Strikethrough;
 				}
 
 				if (rpr.b != null)
@@ -2851,7 +2958,7 @@ namespace unvell.ReoGrid.IO.OpenXML
 #region Excel Document
 	internal partial class Document
 	{
-		private IZipArchive zipArchive;
+		private ZipFile zipArchive;
 
 		public Schema.Workbook Workbook { get; private set; }
 
@@ -2864,7 +2971,7 @@ namespace unvell.ReoGrid.IO.OpenXML
 
 		public static Document ReadFromStream(Stream stream)
 		{
-			IZipArchive zip = MZipArchiveFactory.OpenOnStream(stream);
+			ZipFile zip = new ZipFile(stream);
 
 			if (zip == null) return null;
 
@@ -2891,7 +2998,7 @@ namespace unvell.ReoGrid.IO.OpenXML
 		{
 			string finalPath = entryFile._path + "_rels/" + name + ".rels";
 
-			if (this.zipArchive.IsFileExist(finalPath))
+			if (zipArchive.FindEntry(finalPath, true) != -1)
 			{
 				entryFile._relationFile = this.LoadObjectFromPath<Relationships>(finalPath, null);
 			}
@@ -2909,9 +3016,9 @@ namespace unvell.ReoGrid.IO.OpenXML
 			return this.LoadObjectFromPath<T>(entryFile._path, relation.target);
 		}
 
-		internal T LoadRelationResourceByType<T>(OpenXMLFile entryFile, string typeNamespace) where T : class
+		internal T LoadRelationResource<T>(OpenXMLFile entryFile, Func<Relationship, bool> predicate) where T : class
 		{
-			var relation = this.Workbook._relationFile.relations.FirstOrDefault(r => r.type == typeNamespace);
+			var relation = entryFile._relationFile.relations.FirstOrDefault(predicate);
 			return relation == null ? null : this.LoadObjectFromPath<T>(entryFile._path, relation.target);
 		}
 
@@ -2919,14 +3026,14 @@ namespace unvell.ReoGrid.IO.OpenXML
 		{
 			var finalPath = RelativePathUtility.GetRelativePath(path, name);
 
-			var entry = this.zipArchive.GetFile(finalPath);
+			var entry = zipArchive.GetEntry(finalPath);
 
 			if (entry == null)
 			{
 				throw new ExcelFormatException("Resource entry cannot be found: " + path);
 			}
 
-			using (var stream = entry.GetStream())
+			using (var stream = zipArchive.GetInputStream(entry))
 			{
 				if (stream == null)
 				{
@@ -2951,8 +3058,8 @@ namespace unvell.ReoGrid.IO.OpenXML
 
 		internal Stream GetResourceStream(string path)
 		{
-			var entry = this.zipArchive.GetFile(path);
-			return entry == null ? null : entry.GetStream();
+			var entry = zipArchive.GetEntry(path);
+			return entry == null ? null : zipArchive.GetInputStream(entry);
 		}
 
 #endregion // Load Resources
@@ -2965,7 +3072,7 @@ namespace unvell.ReoGrid.IO.OpenXML
 
 		public SharedStrings ReadSharedStringTable()
 		{
-			if (this.zipArchive.IsFileExist(this.Workbook._path + sharedStrings_xml_filename))
+			if (this.zipArchive.FindEntry(this.Workbook._path + sharedStrings_xml_filename, true) != -1)
 			{
 				return this.LoadEntryFile<SharedStrings>(this.Workbook._path, sharedStrings_xml_filename);
 			}
@@ -2988,7 +3095,8 @@ namespace unvell.ReoGrid.IO.OpenXML
 			{
 				if (this.themesheet == null && this.zipArchive != null)
 				{
-					this.themesheet = this.LoadRelationResourceByType<Theme>(this.Workbook, OpenXMLRelationTypes.theme____________);
+					this.themesheet = this.LoadRelationResource<Theme>(
+						this.Workbook, _r => _r.type == OpenXMLRelationTypes.theme____________);
 				}
 
 				return this.themesheet;
@@ -3011,7 +3119,7 @@ namespace unvell.ReoGrid.IO.OpenXML
 				&& !string.IsNullOrEmpty(compColor.srgbColor.val))
 			{
 				int hex = 0;
-				int.TryParse(compColor.srgbColor.val, System.Globalization.NumberStyles.AllowHexSpecifier, null, out hex);
+				int.TryParse(compColor.srgbColor.val, NumberStyles.AllowHexSpecifier, null, out hex);
 				compColor._solidColor = SolidColor.FromRGB(hex);
 				return compColor._solidColor;
 			}

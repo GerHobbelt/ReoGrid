@@ -17,24 +17,14 @@
  ****************************************************************************/
 
 using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
 
 namespace unvell.ReoGrid
 {
-	/// <summary>
-	/// Obsoleted control settings, changed to WorkbookSettings and WorksheetSettings
-	/// </summary>
-	[Obsolete("changed to WorksheetSettings and WorkbookSettings, http://reogrid.net/document/settings")]
-	public enum ReoGridSettings 
-	{
-	}
-
 	#region Settings
 	/// <summary>
 	/// Workbook Control Settings
 	/// </summary>
+	[Flags]
 	public enum WorkbookSettings : ulong
 	{
 		/// <summary>
@@ -49,7 +39,7 @@ namespace unvell.ReoGrid
 #if EX_SCRIPT
 			| Script_Default
 #endif // EX_SCRIPT
-			,
+			| Formula_AutoUpdateReferenceCell,
 
 		#region Behavior
 
@@ -107,6 +97,13 @@ namespace unvell.ReoGrid
 		Script_PromptBeforeAutoRun = 0x20000000L,
 #endif // EX_SCRIPT
 		#endregion // Script
+
+		#region Formula
+		/// <summary>
+		/// Allow to update formula reference cells automatically.
+		/// </summary>
+		Formula_AutoUpdateReferenceCell = 0x100000000L,
+		#endregion // Formula
 	}
 
 	#endregion

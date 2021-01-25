@@ -63,6 +63,20 @@ namespace unvell.ReoGrid
 
 		internal IControlAdapter controlAdapter;
 
+		public void Recalculate()
+		{
+			foreach (var worksheet in worksheets)
+				worksheet.Uncalculate();
+			foreach (var worksheet in worksheets)
+				worksheet.Recalculate();
+		}
+
+		internal void ExpandToContent()
+		{
+			foreach (var worksheet in worksheets)
+				worksheet.ExpandToContent();
+		}
+
 		public ReoGridControl ControlInstance { get { return (ReoGridControl)this.controlAdapter.ControlInstance; } }
 
 		#region Readonly
@@ -137,15 +151,15 @@ namespace unvell.ReoGrid
 
 		public void Save(string path)
 		{
-			this.Save(path, FileFormat._Auto);
+			Save(path, FileFormat._Auto);
 		}
 
-		public void Save(string path, IO.FileFormat fileFormat)
+		public void Save(string path, IO.FileFormat fileFormat, object arg = null)
 		{
-			this.Save(path, fileFormat, Encoding.Default);
+			Save(path, fileFormat, Encoding.Default, arg);
 		}
 
-		public void Save(string path, IO.FileFormat fileFormat, Encoding encoding)
+		public void Save(string path, IO.FileFormat fileFormat, Encoding encoding, object arg = null)
 		{
 			if (fileFormat == IO.FileFormat._Auto)
 			{
@@ -164,18 +178,48 @@ namespace unvell.ReoGrid
 				}
 			}
 
-			using (var fs = new FileStream(path, FileMode.Create, FileAccess.Write))
+			if (fileFormat == FileFormat.Excel2007)
 			{
-				Save(fs, fileFormat, encoding);
+				var ext = Path.GetExtension(path);
+				if (ext.Equals(".xlsx", StringComparison.InvariantCultureIgnoreCase))
+				{
+					arg = IO.OpenXML.Schema.OpenXMLContentTypes.Workbook______;
+				}
+				else if (ext.Equals(".xltx", StringComparison.InvariantCultureIgnoreCase))
+				{
+					arg = IO.OpenXML.Schema.OpenXMLContentTypes.Template______;
+				}
+				if (ext.Equals(".xlsm", StringComparison.InvariantCultureIgnoreCase))
+				{
+					arg = IO.OpenXML.Schema.OpenXMLContentTypes.MacroWorkbook_;
+				}
+				else if (ext.Equals(".xltm", StringComparison.InvariantCultureIgnoreCase))
+				{
+					arg = IO.OpenXML.Schema.OpenXMLContentTypes.MacroTemplate_;
+				}
+			}
+
+			var temp = Path.GetTempFileName();
+			try
+			{
+				using (var fs = new FileStream(temp, FileMode.Create, FileAccess.ReadWrite))
+				{
+					Save(fs, fileFormat, encoding, arg);
+				}
+				File.Copy(temp, path, true);
+			}
+			finally
+			{
+				File.Delete(temp);
 			}
 		}
 
-		public void Save(System.IO.Stream stream, IO.FileFormat fileFormat)
+		public void Save(System.IO.Stream stream, IO.FileFormat fileFormat, object arg = null)
 		{
-			this.Save(stream, fileFormat, Encoding.Default);
+			Save(stream, fileFormat, Encoding.Default, arg);
 		}
 
-		public void Save(System.IO.Stream stream, IO.FileFormat fileFormat, Encoding encoding)
+		public void Save(System.IO.Stream stream, IO.FileFormat fileFormat, Encoding encoding, object arg = null)
 		{
 			IFileFormatProvider provider = null;
 
@@ -191,7 +235,7 @@ namespace unvell.ReoGrid
 
 			try
 			{
-				provider.Save(this, stream, encoding, null);
+				provider.Save(this, stream, encoding, arg);
 			}
 			finally
 			{
@@ -209,15 +253,15 @@ namespace unvell.ReoGrid
 
 		public void Load(string path)
 		{
-			this.Load(path, IO.FileFormat._Auto);
+			Load(path, IO.FileFormat._Auto);
 		}
 
-		public void Load(string path, IO.FileFormat fileFormat)
+		public object Load(string path, IO.FileFormat fileFormat, object arg = null)
 		{
-			this.Load(path, fileFormat, Encoding.Default);
+			return Load(path, fileFormat, Encoding.Default, arg);
 		}
 
-		public void Load(string path, IO.FileFormat fileFormat, Encoding encoding)
+		public object Load(string path, IO.FileFormat fileFormat, Encoding encoding, object arg = null)
 		{
 			if (fileFormat == IO.FileFormat._Auto)
 			{
@@ -235,10 +279,10 @@ namespace unvell.ReoGrid
 					throw new NotSupportedException("Cannot determine the file format to load workbook from specified path, try specify explicitly the file format by argument.");
 				}
 			}
-
+			object ret = null;
 			using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read))
 			{
-				this.Load(fs, fileFormat, encoding == null ? Encoding.Default : encoding);
+				ret = Load(fs, fileFormat, encoding == null ? Encoding.Default : encoding, arg);
 			}
 
 			// for csv only
@@ -249,15 +293,17 @@ namespace unvell.ReoGrid
 					this.worksheets[0].Name = Path.GetFileNameWithoutExtension(path);
 				}
 			}
+			return ret;
 		}
 
-		public void Load(System.IO.Stream stream, IO.FileFormat fileFormat)
+		public object Load(System.IO.Stream stream, IO.FileFormat fileFormat, object arg)
 		{
-			this.Load(stream, fileFormat, Encoding.Default);
+			return Load(stream, fileFormat, Encoding.Default, arg);
 		}
 
-		public void Load(System.IO.Stream stream, IO.FileFormat fileFormat, Encoding encoding)
+		public object Load(System.IO.Stream stream, IO.FileFormat fileFormat, Encoding encoding, object arg)
 		{
+			object ret = null;
 			if (fileFormat == FileFormat._Auto)
 			{
 				throw new System.ArgumentException("File format 'Auto' is invalid for loading workbook from stream, try specify a file format.");
@@ -279,17 +325,20 @@ namespace unvell.ReoGrid
 
 			try
 			{
-				provider.Load(this, stream, encoding, null);
+				ret = provider.Load(this, stream, encoding, arg);
+				Recalculate();
+				ExpandToContent();
 			}
 			finally
 			{
-				if (this.controlAdapter != null)
+				if (controlAdapter != null)
 				{
-					this.controlAdapter.ChangeCursor(CursorStyle.PlatformDefault);
+					controlAdapter.ChangeCursor(CursorStyle.PlatformDefault);
 				}
 
-				this.WorkbookLoaded?.Invoke(this, null);
+				WorkbookLoaded?.Invoke(this, null);
 			}
+			return ret;
 		}
 
 		/// <summary>
@@ -553,7 +602,25 @@ namespace unvell.ReoGrid
 		/// <returns>Instance of worksheet that is found by specified name; otherwise return null</returns>
 		public Worksheet GetWorksheetByName(string name)
 		{
-			return this.worksheets.FirstOrDefault(w => string.Compare(w.Name, name, true) == 0);
+			var worksheet = worksheets.FirstOrDefault(w => string.Compare(w.Name, name, true) == 0);
+			// If the name refers to an external link, add an empty worksheet to satisfy references
+			if (worksheet == null && name.StartsWith("[") && name.Contains("]"))
+			{
+				worksheet = CreateWorksheet(name);
+				AddWorksheet(worksheet);
+			}
+			return worksheet;
+		}
+
+		public Worksheet TryGetNamedRange(string name, out NamedRange namedRange)
+		{
+			foreach (var worksheet in Worksheets)
+			{
+				if (worksheet.TryGetNamedRange(name, out namedRange) && namedRange.Scope == NamedRangeScope.Workbook)
+					return worksheet;
+			}
+			namedRange = null;
+			return null;
 		}
 
 		#region Collection of worksheet

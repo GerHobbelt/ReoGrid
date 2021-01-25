@@ -30,17 +30,41 @@ using RGWorksheet = unvell.ReoGrid.Worksheet;
 using unvell.ReoGrid.DataFormat;
 using unvell.ReoGrid.Rendering;
 using unvell.ReoGrid.Graphics;
+using ICSharpCode.SharpZipLib.Zip;
 
 namespace unvell.ReoGrid.IO.OpenXML
 {
 	#region Writer
 
+	internal class StaticStreamDataSource : IStaticDataSource
+	{
+		/// <summary>
+		/// Initialise a new instance of <see cref="StaticDiskDataSource"/>
+		/// </summary>
+		/// <param name="fileName">The name of the file to obtain data from.</param>
+		public StaticStreamDataSource(Stream source)
+		{
+			source_ = source;
+		}
+
+		/// <summary>
+		/// Get a <see cref="Stream"/> providing data.
+		/// </summary>
+		/// <returns>Returns a <see cref="Stream"/> providing data.</returns>
+		public Stream GetSource()
+		{
+			return source_;
+		}
+
+		private readonly Stream source_;
+	}
+
 	internal sealed class ExcelWriter
 	{
-		public static void WriteStream(RGWorkbook rgWorkbook, Stream stream)
+		public static void WriteStream(RGWorkbook rgWorkbook, Stream stream, string type = null)
 		{
 			//Document doc = new Document();
-			var doc = Document.CreateOnStream(stream);
+			var doc = Document.CreateOnStream(stream, type);
 
 			WriteDefaultStyles(doc, rgWorkbook);
 
@@ -57,12 +81,16 @@ namespace unvell.ReoGrid.IO.OpenXML
 						workbook.definedNames = new List<DefinedName>();
 					}
 
+					var sheetName = rgSheet.Name.Replace("'", "''");
+					if (sheetName.Length > rgSheet.Name.Length)
+						sheetName = "'" + sheetName + "'";
+
 					foreach (var range in rgSheet.NamedRanges)
 					{
 						workbook.definedNames.Add(new DefinedName
 						{
 							name = range.Name,
-							address = rgSheet.Name + "!" + range.Position.ToAbsoluteAddress(),
+							address = sheetName + "!" + range.Position.ToAbsoluteAddress(),
 						});
 					}
 				}
@@ -279,22 +307,42 @@ namespace unvell.ReoGrid.IO.OpenXML
 
 			if (!string.IsNullOrEmpty(prefix))
 			{
-				prefix = "\"" + prefix + "\"";
+				if (arg is CurrencyDataFormatter.CurrencyFormatArgs carg)
+				{
+					var symbol = prefix.Trim();
+					var padding = prefix.Length - symbol.Length;
+					if (!string.IsNullOrEmpty(carg.CultureEnglishName))
+						symbol += "-" + carg.LCID.ToString("X");
+					prefix = "[$" + symbol + "]".PadRight(1 + padding);
+				}
+				else
+					prefix = "\"" + prefix + "\"";
 			}
 
 			if (!string.IsNullOrEmpty(postfix))
 			{
-				postfix = "\"" + postfix + "\"";
+				if (arg is CurrencyDataFormatter.CurrencyFormatArgs carg)
+				{
+					var symbol = postfix.Trim();
+					var padding = postfix.Length - symbol.Length;
+					if (!string.IsNullOrEmpty(carg.CultureEnglishName))
+						symbol += "-" + carg.LCID.ToString("X");
+					postfix = "[$".PadLeft(2 + padding) + symbol + "]";
+				}
+				else
+					postfix = "\"" + postfix + "\"";
 			}
 
 			StringBuilder sb = new StringBuilder();
 
+			// Pattern to use for positive values
 			if (!string.IsNullOrEmpty(prefix)) sb.Append(prefix);
 			sb.Append(digits);
 			if (!string.IsNullOrEmpty(postfix)) sb.Append(postfix);
 			sb.Append(';');
 
 			#region Negative part
+			// Pattern to use for negative values
 			switch (arg.NegativeStyle)
 			{
 				default:
@@ -307,8 +355,8 @@ namespace unvell.ReoGrid.IO.OpenXML
 
 				case NumberDataFormatter.NumberNegativeStyle.Red:
 				case NumberDataFormatter.NumberNegativeStyle.RedMinus:
-					if (!string.IsNullOrEmpty(prefix)) sb.Append(prefix);
 					sb.Append("[Red]");
+					if (!string.IsNullOrEmpty(prefix)) sb.Append(prefix);
 					if ((arg.NegativeStyle & NumberDataFormatter.NumberNegativeStyle.Minus) == NumberDataFormatter.NumberNegativeStyle.Minus) sb.Append("-");
 					sb.Append(digits);
 					if (!string.IsNullOrEmpty(postfix)) sb.Append(postfix);
@@ -319,15 +367,16 @@ namespace unvell.ReoGrid.IO.OpenXML
 					if (!string.IsNullOrEmpty(prefix)) sb.Append(prefix);
 					sb.Append('(');
 					if ((arg.NegativeStyle & NumberDataFormatter.NumberNegativeStyle.Minus) == NumberDataFormatter.NumberNegativeStyle.Minus) sb.Append("-");
-          sb.Append(digits);
+					sb.Append(digits);
 					sb.Append(')');
 					if (!string.IsNullOrEmpty(postfix)) sb.Append(postfix);
 					break;
 
 				case NumberDataFormatter.NumberNegativeStyle.RedBrackets:
 				case NumberDataFormatter.NumberNegativeStyle.RedBracketsMinus:
+					sb.Append("[Red]");
 					if (!string.IsNullOrEmpty(prefix)) sb.Append(prefix);
-					sb.Append("[Red](");
+					sb.Append('(');
 					if ((arg.NegativeStyle & NumberDataFormatter.NumberNegativeStyle.Minus) == NumberDataFormatter.NumberNegativeStyle.Minus) sb.Append("-");
 					sb.Append(digits);
 					sb.Append(')');
@@ -337,7 +386,7 @@ namespace unvell.ReoGrid.IO.OpenXML
 #if LANG_JP
 				case NumberDataFormatter.NumberNegativeStyle.Prefix_Sankaku:
 					if (!string.IsNullOrEmpty(prefix)) sb.Append(prefix);
-					sb.Append("▲");
+					sb.Append("\"▲ \"");
 					sb.Append(digits);
 					if (!string.IsNullOrEmpty(postfix)) sb.Append(postfix);
 					break;
@@ -347,6 +396,7 @@ namespace unvell.ReoGrid.IO.OpenXML
 			sb.Append(';');
 			#endregion // Negative part
 
+			// Pattern to use for a value of zero
 			if (!string.IsNullOrEmpty(prefix)) sb.Append(prefix);
 			sb.Append(digits);
 			if (!string.IsNullOrEmpty(postfix)) sb.Append(postfix);
@@ -820,6 +870,11 @@ namespace unvell.ReoGrid.IO.OpenXML
 							//schema = "minor",
 						};
 
+						if ((r.FontStyles & Drawing.Text.FontStyles.Bold) == Drawing.Text.FontStyles.Strikethrough)
+						{
+							rpr.strike = new ElementValue<string>();
+						}
+
 						if ((r.FontStyles & Drawing.Text.FontStyles.Bold) == Drawing.Text.FontStyles.Bold)
 						{
 							rpr.b = new ElementValue<string>();
@@ -984,10 +1039,11 @@ namespace unvell.ReoGrid.IO.OpenXML
 
 		#region Worksheet
 		internal static readonly System.Globalization.CultureInfo EnglishCulture = System.Globalization.CultureInfo.GetCultureInfo("en-US");
+		internal const System.Globalization.NumberStyles Number = System.Globalization.NumberStyles.Number | System.Globalization.NumberStyles.AllowExponent;
 
 		private static void WriteWorksheet(Document doc, RGWorksheet rgSheet)
 		{
-			if (rgSheet.Rows == 0 || rgSheet.Columns == 0)
+			if (rgSheet.RowCount == 0 || rgSheet.ColumnCount == 0)
 			{
 #if DEBUG
 				System.Diagnostics.Debug.Assert(false, "rows or columns on worksheet must not be zero.");
@@ -1137,7 +1193,7 @@ namespace unvell.ReoGrid.IO.OpenXML
 				}
 			}
 
-			if (lastColIndex > 0 && lastColIndex < rgSheet.Columns)
+			if (lastColIndex > 0 && lastColIndex < rgSheet.ColumnCount)
 			{
 				if (sheet.cols == null)
 				{
@@ -1147,7 +1203,7 @@ namespace unvell.ReoGrid.IO.OpenXML
 				sheet.cols.Add(new Column
 				{
 					min = lastColIndex + 1,
-					max = rgSheet.Columns,
+					max = rgSheet.ColumnCount,
 					width = Math.Truncate((rgSheet.defaultColumnWidth - columnWidthPad) / fixedCharWidth * 100.0 + 0.5) / 100.0,
 				});
 			}
@@ -1249,12 +1305,9 @@ namespace unvell.ReoGrid.IO.OpenXML
 								cell.dataType = "s";
 							}
 #endif // DRAWING
-							else if (data is DateTime)
+							else if (data is DateTime dt)
 							{
-								var dt = (DateTime)data;
-								double days = (dt - DateTimeDataFormatter.BaseStartDate).TotalDays + 1;
-								if (days > 59) days++;
-
+								double days = dt.ToOADate();
 								cell.value = new ElementText(Convert.ToString(days, EnglishCulture));
 							}
 							else if (data != null)
@@ -1437,12 +1490,11 @@ namespace unvell.ReoGrid.IO.OpenXML
 
 		internal CoreProperties coreProp;
 
-		internal static Document CreateOnStream(Stream stream)
+		internal static Document CreateOnStream(Stream stream, string type)
 		{
 			Document doc = new Document()
 			{
-				//zipArchive = NET35ZipArchiveFactory.OpenOnStream(stream, FileMode.Create, FileAccess.Write, true),
-				zipArchive = MZipArchiveFactory.CreateOnStream(stream),
+				zipArchive = ZipFile.Create(stream),
 				_relationFile = new Relationships("_rels/.rels"),
 			};
 
@@ -1457,16 +1509,18 @@ namespace unvell.ReoGrid.IO.OpenXML
 				Overrides = new List<ContentTypeOverrideItem>(),
 			};
 
-			doc.CreateWorkbook();
+			doc.CreateWorkbook(type);
 
 			doc.CreateCoreProperties();
 
 			doc.CreateAppProperties();
 
+			doc.zipArchive.BeginUpdate();
+
 			return doc;
 		}
 
-		internal Schema.Workbook CreateWorkbook()
+		internal Schema.Workbook CreateWorkbook(string type)
 		{
 			this.Workbook = new Schema.Workbook
 			{
@@ -1493,7 +1547,7 @@ namespace unvell.ReoGrid.IO.OpenXML
 			this.contentType.Overrides.Add(new ContentTypeOverrideItem
 			{
 				PartName = "/" + this.Workbook._xmlTarget,
-				ContentType = OpenXMLContentTypes.Workbook______,
+				ContentType = type != null ? type : OpenXMLContentTypes.Workbook______,
 			});
 
 			return this.Workbook;
@@ -1694,11 +1748,7 @@ namespace unvell.ReoGrid.IO.OpenXML
 				XMLHelper.SaveXML(stream, obj);
 				stream.Position = 0;
 
-				IZipEntry ctEntry = this.zipArchive.AddFile(path, stream);
-
-				//var s = ctEntry.CreateStream();
-				//{
-				//}
+				zipArchive.Add(new StaticStreamDataSource(stream), path);
 			}
 		}
 
@@ -1797,8 +1847,7 @@ namespace unvell.ReoGrid.IO.OpenXML
 
 							stream.Position = 0;
 
-							IZipEntry ctEntry = this.zipArchive.AddFile("xl/media/" + blip._imageFileName, stream);
-
+							zipArchive.Add(new StaticStreamDataSource(stream), "xl/media/" + blip._imageFileName);
 						}
 					}
 #endregion // Floating Images
@@ -1827,7 +1876,7 @@ namespace unvell.ReoGrid.IO.OpenXML
 			}
 #endregion // AppProperties
 
-			this.zipArchive.Flush();
+			this.zipArchive.CommitUpdate();
 			this.zipArchive.Close();
 		}
 	}

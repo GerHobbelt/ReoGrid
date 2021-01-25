@@ -784,7 +784,8 @@ namespace unvell.ReoGrid.Views
 				}
 			#endregion // Determine clip region
 
-				var rtBounds = cell.Bounds * this.scaleFactor;
+				cell.Worksheet.UpdateCellTextBounds(dc.Renderer, cell, dc.DrawMode, scaleFactor);
+				var rtBounds = cell.Bounds * scaleFactor;
 
 				//if (!needWidthClip)
 				//{
@@ -840,11 +841,6 @@ namespace unvell.ReoGrid.Views
 					textColor = SolidColor.Black;
 				}
 
-				if (cell.FontDirty)
-				{
-					sheet.UpdateCellFont(cell);
-				}
-
 				#endregion // Determine text color
 
 				#region Determine clip region
@@ -894,7 +890,7 @@ namespace unvell.ReoGrid.Views
 				}
 				else
 				{
-					needWidthClip = cell.TextBoundsHeight > cellScaledHeight;
+					needWidthClip = cell.TextBounds.Height > cellScaledHeight;
 				}
 
 				if (needWidthClip)
@@ -923,19 +919,33 @@ namespace unvell.ReoGrid.Views
 		#region DrawCell Background
 		internal void DrawCellBackground(CellDrawingContext dc, int row, int col, Cell cell, bool refPosition = false)
 		{
-			WorksheetRangeStyle style;
-
+			SolidColor BackColor = SolidColor.Transparent;
+			SolidColor FillPatternColor = SolidColor.Transparent;
+			HatchStyles FillPatternStyle = HatchStyles.Min;
 			if (cell == null)
 			{
 				StyleParentKind pKind = StyleParentKind.Own;
-				style = StyleUtility.FindCellParentStyle(this.sheet, row, col, out pKind);
+				WorksheetRangeStyle style = StyleUtility.FindCellParentStyle(this.sheet, row, col, out pKind);
+				BackColor = style.BackColor;
+				FillPatternColor = style.FillPatternColor;
+				FillPatternStyle = style.FillPatternStyle;
+			}
+			else if (cell.DiffFlag.HasFlag(DiffFlag.DiffChange))
+			{
+				BackColor = sheet.controlAdapter.ControlStyle.DiffColorChange;
+			}
+			else if (cell.DiffFlag.HasFlag(DiffFlag.DiffInsert))
+			{
+				BackColor = sheet.controlAdapter.ControlStyle.DiffColorInsert;
 			}
 			else
 			{
-				style = cell.InnerStyle;
+				WorksheetRangeStyle style = cell.InnerStyle;
+				BackColor = style.BackColor;
+				FillPatternColor = style.FillPatternColor;
+				FillPatternStyle = style.FillPatternStyle;
 			}
-
-			if (style.BackColor.A > 0)
+			if (BackColor.A > 0)
 			{
 				var startPos = new CellPosition(row, col);
 
@@ -953,13 +963,13 @@ namespace unvell.ReoGrid.Views
 				{
 					var g = dc.Graphics;
 
-					if (style.FillPatternColor.A > 0)
+					if (FillPatternColor.A > 0)
 					{
-						g.FillRectangle(style.FillPatternStyle, style.FillPatternColor, style.BackColor, rect);
+						g.FillRectangle(FillPatternStyle, FillPatternColor, BackColor, rect);
 					}
 					else
 					{
-						g.FillRectangle(rect, style.BackColor);
+						g.FillRectangle(rect, BackColor);
 					}
 				}
 			}
@@ -988,7 +998,7 @@ namespace unvell.ReoGrid.Views
 				{
 					SolidColor selectionFillColor = controlStyle.Colors[ControlAppearanceColors.SelectionFill];
 
-					if (sheet.SelectionStyle == WorksheetSelectionStyle.Default)
+					if ((sheet.SelectionStyle & WorksheetSelectionStyle.Default) != 0)
 					{
 						var range = this.sheet.GetRangeIfMergedCell(this.sheet.focusPos);
 						var scaledFocusPosRect = GetScaledAndClippedRangeRect(this, range.StartPos, range.EndPos, 0);
@@ -1016,7 +1026,7 @@ namespace unvell.ReoGrid.Views
 							g.DrawRectangle(scaledSelectionRect, selectionBorderColor, selectionBorderWidth, LineStyles.Solid);
 						}
 					}
-					else if (this.sheet.SelectionStyle == WorksheetSelectionStyle.FocusRect)
+					if ((sheet.SelectionStyle & WorksheetSelectionStyle.FocusRect) != 0)
 					{
 						g.DrawRectangle(scaledSelectionRect, SolidColor.Black, 1, LineStyles.Dot);
 					}
@@ -1782,9 +1792,9 @@ namespace unvell.ReoGrid.Views
 					{
 						CellPosition pos = CellsViewport.GetPosByPoint(this, location);
 
-						if (sheet.lastChangedSelectionRange != sheet.selectionRange)
-						{
-							sheet.lastChangedSelectionRange = sheet.selectionRange;
+						//if (sheet.lastChangedSelectionRange != sheet.selectionRange)
+						//{
+							//sheet.lastChangedSelectionRange = sheet.selectionRange;
 							sheet.selEnd = pos;
 
 #if WINFORM || WPF
@@ -1811,7 +1821,7 @@ namespace unvell.ReoGrid.Views
 								sheet.RaiseScriptEvent("onselectionchange");
 							}
 #endif // EX_SCRIPT
-						}
+						//}
 
 						{
 							int row = pos.Row;

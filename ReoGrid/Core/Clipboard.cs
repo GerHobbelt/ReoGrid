@@ -220,8 +220,7 @@ namespace unvell.ReoGrid
 
 #if WINFORM || WPF
 					DataObject data = new DataObject();
-					data.SetData(ClipBoardDataFormatIdentify,
-						GetPartialGrid(currentCopingRange, PartialGridCopyFlag.All, ExPartialGridCopyFlag.None, true));
+					data.SetData(ClipBoardDataFormatIdentify, GetPartialGrid(currentCopingRange));
 
 					string text = StringifyRange(currentCopingRange);
 					if (!string.IsNullOrEmpty(text)) data.SetText(text);
@@ -354,75 +353,8 @@ namespace unvell.ReoGrid
 							return false;
 						}
 
-						// check any intersected merge-range in partial grid 
-						// 
-						bool cancelPerformPaste = false;
-
-						if (partialGrid.Cells != null)
-						{
-							try
-							{
-								#region Check repeated intersected ranges
-								for (int rr = 0; rr < rowRepeat; rr++)
-								{
-									for (int cc = 0; cc < colRepeat; cc++)
-									{
-										partialGrid.Cells.Iterate((row, col, cell) =>
-										{
-											if (cell.IsMergedCell)
-											{
-												for (int r = startRow; r < cell.MergeEndPos.Row - cell.InternalRow + startRow + 1; r++)
-												{
-													for (int c = startCol; c < cell.MergeEndPos.Col - cell.InternalCol + startCol + 1; c++)
-													{
-														int tr = r + rr * partialGrid.Rows;
-														int tc = c + cc * partialGrid.Columns;
-
-														var existedCell = cells[tr, tc];
-
-														if (existedCell != null)
-														{
-															if (
-																// cell is a part of merged cell
-																(existedCell.Rowspan == 0 && existedCell.Colspan == 0)
-																// cell is merged cell
-																|| existedCell.IsMergedCell)
-															{
-																throw new RangeIntersectionException(selectionRange);
-															}
-															// cell is readonly
-															else if (existedCell.IsReadOnly)
-															{
-																throw new CellDataReadonlyException(cell.InternalPos);
-															}
-														}
-													}
-												}
-											}
-
-											return Math.Min(cell.Colspan, (short)1);
-										});
-									}
-								}
-								#endregion // Check repeated intersected ranges
-							}
-							catch (Exception ex)
-							{
-								cancelPerformPaste = true;
-
-								// raise event to notify user-code there is error happened during paste operation
-								if (OnPasteError != null)
-								{
-									OnPasteError(this, new RangeOperationErrorEventArgs(selectionRange, ex));
-								}
-							}
-						}
-
-						if (!cancelPerformPaste)
-						{
-							DoAction(new SetPartialGridAction(new RangePosition(
-								startRow, startCol, rows, cols), partialGrid));
-						}
+						DoAction(new SetPartialGridAction(new RangePosition(
+							startRow, startCol, rows, cols), partialGrid));
 
 						#endregion // Partial Grid Pasting
 					}
@@ -538,9 +470,10 @@ namespace unvell.ReoGrid
 
 				if (!HasSettings(WorksheetSettings.Edit_Readonly))
 				{
-					this.DeleteRangeData(currentCopingRange);
-					this.RemoveRangeStyles(currentCopingRange, PlainStyleFlag.All);
-					this.RemoveRangeBorders(currentCopingRange, BorderPositions.All);
+					if (controlAdapter.ControlInstance is IActionControl actionSupportedControl)
+					{
+						actionSupportedControl.DoAction(this, new RemoveRangeDataAction(currentCopingRange));
+					}
 				}
 
 				if (AfterCut != null)

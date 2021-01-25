@@ -158,34 +158,29 @@ namespace unvell.ReoGrid.Chart
 	#region On-Axis Views
 	public abstract class AxisInfoView : DrawingObject
 	{
-		public AxisChart Chart { get; protected set; }
+		public readonly AxisChart Chart;
+		public readonly AxisTypes AxisType;
+		public readonly AxisOrientation Orientation;
 
-		public AxisTypes AxisType { get; protected set; }
-
-		public AxisInfoView(AxisChart chart, AxisTypes axisType)
+		public AxisInfoView(AxisChart chart, AxisTypes axisType, AxisOrientation orientation)
 		{
-			this.Chart = chart;
-			this.AxisType = axisType;
+			Chart = chart;
+			AxisType = axisType;
+			Orientation = orientation;
 
-			this.FillColor = SolidColor.Transparent;
-			this.LineColor = SolidColor.Transparent;
-			this.FontSize *= 0.9f;
+			FillColor = SolidColor.Transparent;
+			LineColor = SolidColor.Transparent;
+			FontSize *= 0.9f;
 		}
 
-		public AxisInfoView(AxisChart chart)
-			: this(chart, AxisTypes.Primary)
-		{
-		}
+		protected AxisDataInfo AxisInfo => AxisType == AxisTypes.Primary ? Chart.PrimaryAxisInfo : Chart.SecondaryAxisInfo;
 	}
 
 	public class AxisCategoryLabelView : AxisInfoView
 	{
-		private AxisOrientation orientation;
-
 		public AxisCategoryLabelView(AxisChart chart, AxisTypes axisType = AxisTypes.Primary, AxisOrientation orientation = AxisOrientation.Vertical)
-			: base(chart, axisType)
+			: base(chart, axisType, orientation)
 		{
-			this.orientation = orientation;
 		}
 
 		/// <summary>
@@ -196,46 +191,55 @@ namespace unvell.ReoGrid.Chart
 		{
 			base.OnPaint(dc);
 
-			if (this.Chart == null) return;
-
-			var ai = this.AxisType == AxisTypes.Primary ?
-				this.Chart.PrimaryAxisInfo : this.Chart.SecondaryAxisInfo;
+			var ai = AxisInfo;
 
 			if (ai == null) return;
 
 			var g = dc.Graphics;
 
-			var ds = this.Chart.DataSource;
-			var clientRect = this.ClientBounds;
+			var ds = Chart.DataSource;
+			var clientRect = ClientBounds;
 
 			RGFloat fontHeight = (RGFloat)(this.FontSize * PlatformUtility.GetDPI() / 72.0) + 4;
 
 			double rowValue = ai.Minimum;
 
-			if (orientation == AxisOrientation.Vertical)
+			if (Orientation == AxisOrientation.Vertical)
 			{
 				RGFloat stepY = (clientRect.Height - fontHeight) / ai.Levels;
 				var textRect = new Rectangle(0, clientRect.Bottom - fontHeight, clientRect.Width, fontHeight);
 
 				for (int level = 0; level <= ai.Levels; level++)
 				{
-					g.DrawText(Math.Round(rowValue, Math.Abs(ai.Scaler)).ToString(), this.FontName, this.FontSize, this.ForeColor, textRect, ReoGridHorAlign.Right, ReoGridVerAlign.Middle);
+					g.DrawText(Math.Round(rowValue, Math.Abs(ai.Scaler)).ToString(), FontName, FontSize, ForeColor, textRect, ReoGridHorAlign.Right, ReoGridVerAlign.Middle);
 
 					textRect.Y -= stepY;
 					rowValue += Math.Round(ai.LargeStride, Math.Abs(ai.Scaler));
 				}
 			}
-			else if (orientation == AxisOrientation.Horizontal)
+			else if (Orientation == AxisOrientation.Horizontal)
 			{
-				RGFloat columnWidth = clientRect.Width / ai.Levels;
+				var maxWidth = Math.Max(
+					PlatformUtility.MeasureText(dc,
+						Math.Round(ai.Minimum, Math.Abs(ai.Scaler)).ToString(),
+						FontName, FontSize, Drawing.Text.FontStyles.Regular
+					).Width,
+					PlatformUtility.MeasureText(dc,
+						Math.Round(ai.Maximum, Math.Abs(ai.Scaler)).ToString(),
+						FontName, FontSize, Drawing.Text.FontStyles.Regular
+					).Width);
+
+				int showTitleStride = Math.Max((int)Math.Ceiling(ai.Levels * maxWidth / clientRect.Width), 1);
+
+				RGFloat columnWidth = clientRect.Width / ai.Levels * showTitleStride;
 				var textRect = new Rectangle(clientRect.Left - (columnWidth / 2), clientRect.Top, columnWidth, clientRect.Height);
 
-				for (int level = 0; level <= ai.Levels; level ++)
+				for (int level = 0; level <= ai.Levels; level += showTitleStride)
 				{
-					g.DrawText(Math.Round(rowValue, Math.Abs(ai.Scaler)).ToString(), this.FontName, this.FontSize, this.ForeColor, textRect, ReoGridHorAlign.Center, ReoGridVerAlign.Top);
+					g.DrawText(Math.Round(rowValue, Math.Abs(ai.Scaler)).ToString(), FontName, FontSize, ForeColor, textRect, ReoGridHorAlign.Center, ReoGridVerAlign.Top);
 
 					textRect.X += columnWidth;
-					rowValue += Math.Round(ai.LargeStride, Math.Abs(ai.Scaler));
+					rowValue += Math.Round(ai.LargeStride, Math.Abs(ai.Scaler)) * showTitleStride;
 				}
 			}
 		}
@@ -243,12 +247,9 @@ namespace unvell.ReoGrid.Chart
 
 	public class AxisSerialLabelView : AxisInfoView
 	{
-		private AxisOrientation orientation;
-
 		public AxisSerialLabelView(AxisChart chart, AxisTypes axisType = AxisTypes.Primary, AxisOrientation orientation = AxisOrientation.Horizontal)
-			: base(chart, axisType)
+			: base(chart, axisType, orientation)
 		{
-			this.orientation = orientation;
 		}
 
 		/// <summary>
@@ -259,10 +260,7 @@ namespace unvell.ReoGrid.Chart
 		{
 			base.OnPaint(dc);
 
-			if (this.Chart == null) return;
-
-			var ai = this.AxisType == AxisTypes.Primary ?
-				this.Chart.PrimaryAxisInfo : this.Chart.SecondaryAxisInfo;
+			var ai = AxisInfo;
 
 			if (ai == null) return;
 
@@ -271,11 +269,10 @@ namespace unvell.ReoGrid.Chart
 			var ds = this.Chart.DataSource;
 			var clientRect = this.ClientBounds;
 
-			var titles = new Dictionary<int, string>();
-			var boxes = new List<Size>();
+			RGFloat maxWidth = 0;
+			RGFloat maxHeight = 0;
 
 			int dataCount = ds.CategoryCount;
-			double rowValue = ai.Minimum;
 
 			for (int i = 0; i < dataCount; i++)
 			{
@@ -283,60 +280,58 @@ namespace unvell.ReoGrid.Chart
 
 				if (!string.IsNullOrEmpty(title))
 				{
-					titles[i] = title;
-					boxes.Add(PlatformUtility.MeasureText(dc.Renderer, title, this.FontName, this.FontSize, Drawing.Text.FontStyles.Regular));
-				}
-				else
-				{
-					boxes.Add(new Size(0, 0));
+					var size = PlatformUtility.MeasureText(dc, title, FontName, FontSize, Drawing.Text.FontStyles.Regular);
+
+					if (maxWidth < size.Width)
+						maxWidth = size.Width;
+					if (maxHeight < size.Height)
+						maxHeight = size.Height;
 				}
 			}
 
-			if (orientation == AxisOrientation.Horizontal)
+			if (Orientation == AxisOrientation.Horizontal && maxWidth != 0)
 			{
 				RGFloat columnWidth = (clientRect.Width) / dataCount;
 
-				var maxWidth = boxes.Max(b => b.Width);
 				var showableColumns = clientRect.Width / maxWidth;
 
 				int showTitleStride = (int)Math.Ceiling(dataCount / showableColumns);
 				if (showTitleStride < 1) showTitleStride = 1;
 
+				ReoGridHorAlign halign = showTitleStride == 1 ? ReoGridHorAlign.Center : ReoGridHorAlign.Left;
+
 				RGFloat stepX = clientRect.Width / dataCount;
 
 				for (int i = 0; i < dataCount; i += showTitleStride)
 				{
-					string text = null;
+					string text = ds.GetCategoryName(i);
 
-					if (titles.TryGetValue(i, out text) && !string.IsNullOrEmpty(text))
+					if (!string.IsNullOrEmpty(text))
 					{
-						var size = boxes[i];
-						var textRect = new Rectangle(columnWidth * i, 0, columnWidth, clientRect.Height);
+						var textRect = new Rectangle(columnWidth * i, 0, columnWidth * showTitleStride, clientRect.Height);
 
-						g.DrawText(text, this.FontName, this.FontSize, this.ForeColor, textRect, ReoGridHorAlign.Center, ReoGridVerAlign.Middle);
+						g.DrawText(text, FontName, FontSize, ForeColor, textRect, halign, ReoGridVerAlign.Middle);
 					}
 				}
 			}
-			else if (orientation == AxisOrientation.Vertical)
+			else if (Orientation == AxisOrientation.Vertical && maxHeight != 0)
 			{
-				RGFloat rowHeight = (clientRect.Height) / dataCount;
+				RGFloat rowHeight = (clientRect.Height - 10) / dataCount;
 
-				var maxHeight = boxes.Max(b => b.Height);
-				var showableRows = clientRect.Width / maxHeight;
+				var showableRows = clientRect.Height / maxHeight;
 
 				int showTitleStride = (int)Math.Ceiling(dataCount / showableRows);
 				if (showTitleStride < 1) showTitleStride = 1;
 
 				for (int i = 0; i < dataCount; i += showTitleStride)
 				{
-					string text = null;
+					string text = ds.GetCategoryName(i);
 
-					if (titles.TryGetValue(i, out text) && !string.IsNullOrEmpty(text))
+					if (!string.IsNullOrEmpty(text))
 					{
-						var size = boxes[i];
-						var textRect = new Rectangle(0, rowHeight * i, clientRect.Width, rowHeight);
+						var textRect = new Rectangle(0, rowHeight * i + 5, clientRect.Width, rowHeight);
 
-						g.DrawText(text, this.FontName, this.FontSize, this.ForeColor, textRect, ReoGridHorAlign.Center, ReoGridVerAlign.Middle);
+						g.DrawText(text, FontName, FontSize, ForeColor, textRect, ReoGridHorAlign.Right, ReoGridVerAlign.Middle);
 					}
 				}
 			}
@@ -350,7 +345,7 @@ namespace unvell.ReoGrid.Chart
 		public AxisGuideLinePlotView(AxisChart chart)
 			: base(chart)
 		{
-			this.LineColor = SolidColor.Silver;
+			LineColor = SolidColor.Silver;
 		}
 
 		/// <summary>
@@ -359,8 +354,7 @@ namespace unvell.ReoGrid.Chart
 		/// <param name="dc">Platform unassociated drawing context instance.</param>
 		protected override void OnPaint(DrawingContext dc)
 		{
-			var axisChart = this.Chart as AxisChart;
-			if (axisChart == null) return;
+			var axisChart = Chart as AxisChart;
 
 			var g = dc.Graphics;
 			var clientRect = this.ClientBounds;

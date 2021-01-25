@@ -20,7 +20,7 @@ using System;
 
 using unvell.ReoGrid.IO;
 using unvell.ReoGrid.Actions;
-using unvell.ReoGrid.Events;
+using unvell.Common;
 using unvell.ReoGrid.Graphics;
 
 #if WINFORM
@@ -108,11 +108,11 @@ namespace unvell.ReoGrid.Main
 
 	internal interface IPersistenceWorkbook
 	{
-		void Save(string path, FileFormat format = FileFormat._Auto, System.Text.Encoding encoding = null);
-		void Save(System.IO.Stream stream, FileFormat format = FileFormat._Auto, System.Text.Encoding encoding = null);
+		void Save(string path, FileFormat format = FileFormat._Auto, System.Text.Encoding encoding = null, object arg = null);
+		void Save(System.IO.Stream stream, FileFormat format = FileFormat._Auto, System.Text.Encoding encoding = null, object arg = null);
 
-		void Load(string path, FileFormat format = FileFormat._Auto, System.Text.Encoding encoding = null);
-		void Load(System.IO.Stream stream, FileFormat format = FileFormat._Auto, System.Text.Encoding encoding = null);
+		object Load(string path, FileFormat format = FileFormat._Auto, System.Text.Encoding encoding = null, object arg = null);
+		object Load(System.IO.Stream stream, FileFormat format = FileFormat._Auto, System.Text.Encoding encoding = null, object arg = null);
 	}
 
 	internal interface IActionControl
@@ -124,9 +124,9 @@ namespace unvell.ReoGrid.Main
 		void RepeatLastAction(RangePosition range);
 		//bool CanUndo();
 		//bool CanRedo();
-		event EventHandler<WorkbookActionEventArgs> ActionPerformed;
-		event EventHandler<WorkbookActionEventArgs> Undid;
-		event EventHandler<WorkbookActionEventArgs> Redid;
+		event EventHandler<ActionEventArgs> ActionPerformed;
+		event EventHandler<ActionEventArgs> Undid;
+		event EventHandler<ActionEventArgs> Redid;
 		//event EventHandler Repeated;
 		void ClearActionHistory();
 		void ClearActionHistoryForWorksheet(Worksheet sheet);

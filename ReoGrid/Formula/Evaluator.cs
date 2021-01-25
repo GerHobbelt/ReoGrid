@@ -97,8 +97,11 @@ namespace unvell.ReoGrid.Formula
 					return ((STNumberNode)node).Value;
 
 				case STNodeType.RANGE:
-					return ((STRangeNode)node).Range;
-
+					{
+						var nodeAs = node as STRangeNode;
+						return new FormulaValue(FormulaValueType.Range, new ReferenceRange(
+							nodeAs.Worksheet != null ? nodeAs.Worksheet : cell.Worksheet, nodeAs.Range));
+					}
 				case STNodeType.STRING:
 					return ((STStringNode)node).Text;
 
@@ -111,18 +114,21 @@ namespace unvell.ReoGrid.Formula
 				case STNodeType.IDENTIFIER:
 					#region Identifier
 					{
-						string name = ((STIdentifierNode)node).Identifier;
+						var nodeAs = node as STIdentifierNode;
+						var name = nodeAs.Identifier;
+						var worksheet = nodeAs.Worksheet != null ? nodeAs.Worksheet : cell.Worksheet;
 						NamedRange range;
 
-						if (cell.Worksheet.TryGetNamedRange(name, out range))
+						if (worksheet.TryGetNamedRange(name, out range) ||
+							(worksheet = worksheet.workbook.TryGetNamedRange(name, out range)) != null)
 						{
 							if (range.Position.IsSingleCell)
 							{
-								return CreateFormulaValue(cell.Worksheet.GetCellData(range.StartPos));
+								return CreateFormulaValue(worksheet.GetCellData(range.StartPos));
 							}
 							else
 							{
-								return range.Position;
+								return new FormulaValue(FormulaValueType.Range, range);
 							}
 						}
 						else if (FormulaExtension.NameReferenceProvider != null)
@@ -143,16 +149,10 @@ namespace unvell.ReoGrid.Formula
 					{
 						if (node.Children.Count < 2) return FormulaValue.Nil;
 
-						FormulaValue v1 = CheckAndGetDefaultValue(cell, Evaluate(workbook, cell, node[0]));
-						FormulaValue v2 = CheckAndGetDefaultValue(cell, Evaluate(workbook, cell, node[1]));
+						var v1 = CheckAndGetDefaultValueDouble(cell, Evaluate(workbook, cell, node[0]));
+						var v2 = CheckAndGetDefaultValueDouble(cell, Evaluate(workbook, cell, node[1]));
 
-						if (v1.type != FormulaValueType.Number || v2.type != FormulaValueType.Number)
-						{
-							throw new FormulaTypeMismatchException(cell);
-							//return FormulaValue.Nil;
-						}
-
-						return (double)v1.value + (double)v2.value;
+						return v1 + v2;
 					}
 				#endregion // Add
 
@@ -161,16 +161,10 @@ namespace unvell.ReoGrid.Formula
 					{
 						if (node.Children.Count < 2) return FormulaValue.Nil;
 
-						FormulaValue v1 = CheckAndGetDefaultValue(cell, Evaluate(cell, node[0]));
-						FormulaValue v2 = CheckAndGetDefaultValue(cell, Evaluate(cell, node[1]));
+						var v1 = CheckAndGetDefaultValueDouble(cell, Evaluate(workbook, cell, node[0]));
+						var v2 = CheckAndGetDefaultValueDouble(cell, Evaluate(workbook, cell, node[1]));
 
-						if (v1.type != FormulaValueType.Number || v2.type != FormulaValueType.Number)
-						{
-							throw new FormulaTypeMismatchException(cell);
-							//return FormulaValue.Nil;
-						}
-
-						return (double)v1.value - (double)v2.value;
+						return v1 - v2;
 					}
 				#endregion // Sub
 
@@ -286,6 +280,9 @@ namespace unvell.ReoGrid.Formula
 							case FormulaValueType.Number:
 								return (double)v1.value == (double)v2.value;
 
+							case FormulaValueType.DateTime:
+								return (DateTime)v1.value == (DateTime)v2.value;
+
 							case FormulaValueType.String:
 								return (string)v1.value == (string)v2.value;
 
@@ -311,6 +308,9 @@ namespace unvell.ReoGrid.Formula
 							case FormulaValueType.Number:
 								return (double)v1.value != (double)v2.value;
 
+							case FormulaValueType.DateTime:
+								return (DateTime)v1.value != (DateTime)v2.value;
+
 							case FormulaValueType.String:
 								return (string)v1.value != (string)v2.value;
 
@@ -335,6 +335,13 @@ namespace unvell.ReoGrid.Formula
 							return (node.Type == STNodeType.GREAT_EQUALS)
 								? (double)v1.value >= (double)v2.value
 								: (double)v1.value > (double)v2.value;
+						}
+
+						if (v1.type == FormulaValueType.DateTime && v2.type == FormulaValueType.DateTime)
+						{
+							return (node.Type == STNodeType.GREAT_EQUALS)
+								? (DateTime)v1.value >= (DateTime)v2.value
+								: (DateTime)v1.value > (DateTime)v2.value;
 						}
 
 						if (v1.type == FormulaValueType.String || v2.type == FormulaValueType.String)
@@ -370,6 +377,13 @@ namespace unvell.ReoGrid.Formula
 							return (node.Type == STNodeType.LESS_EQUALS)
 								? (double)v1.value <= (double)v2.value
 								: (double)v1.value < (double)v2.value;
+						}
+
+						if (v1.type == FormulaValueType.DateTime && v2.type == FormulaValueType.DateTime)
+						{
+							return (node.Type == STNodeType.LESS_EQUALS)
+								? (DateTime)v1.value <= (DateTime)v2.value
+								: (DateTime)v1.value < (DateTime)v2.value;
 						}
 
 						if (v1.type == FormulaValueType.String || v2.type == FormulaValueType.String)
@@ -421,12 +435,29 @@ namespace unvell.ReoGrid.Formula
 				return val;
 		}
 
+		internal static double CheckAndGetDefaultValueDouble(Cell cell, FormulaValue val)
+		{
+			val = CheckAndGetDefaultValue(cell, val);
+			switch (val.type)
+			{
+				case FormulaValueType.Number:
+					return (double)val.value;
+				case FormulaValueType.DateTime:
+					return ((DateTime)val.value).ToOADate();
+			}
+			throw new FormulaTypeMismatchException(cell);
+		}
+
 		internal static FormulaValue CreateFormulaValue(Cell cell)
 		{
 			object obj = null;
 
 			if (cell != null)
 			{
+				if (cell.InnerData == null)
+				{
+					cell.Worksheet.RecalcCell(cell);
+				}
 				obj = cell.Data;
 			}
 
@@ -564,9 +595,21 @@ namespace unvell.ReoGrid.Formula
 				//case BuiltinFunctionNames.ABS_RU:
 					return Math.Abs(GetFunctionNumberArg(cell, funNode.Children));
 
+				case BuiltinFunctionNames.INT_EN:
+				//case BuiltinFunctionNames.INT_RU:
+					return Math.Floor(GetFunctionNumberArg(cell, funNode.Children));
+
 				case BuiltinFunctionNames.ROUND_EN:
 				case BuiltinFunctionNames.ROUND_RU:
 					return ExcelFunctions.Round(cell, GetFunctionArgs(cell, funNode.Children, 1, 2));
+
+				case BuiltinFunctionNames.ROUNDUP_EN:
+				//case BuiltinFunctionNames.ROUNDUP_RU:
+					return ExcelFunctions.RoundUp(cell, GetFunctionArgs(cell, funNode.Children, 1, 2));
+
+				case BuiltinFunctionNames.ROUNDDOWN_EN:
+					//case BuiltinFunctionNames.ROUNDUP_RU:
+					return ExcelFunctions.RoundDown(cell, GetFunctionArgs(cell, funNode.Children, 1, 2));
 
 				case BuiltinFunctionNames.CEILING_EN:
 				case BuiltinFunctionNames.CEILING_RU:
@@ -700,7 +743,36 @@ namespace unvell.ReoGrid.Formula
 						};
 					}
 					return DateTime.Now;
-					#endregion // TODAY
+				#endregion // TODAY
+
+				case BuiltinFunctionNames.DATE_EN:
+				//case BuiltinFunctionNames.DATE_RU:
+					#region TIME
+					args = GetFunctionArgs(cell, funNode.Children, 3);
+
+					if (args[0].type != FormulaValueType.Number
+						|| args[1].type != FormulaValueType.Number
+						|| args[2].type != FormulaValueType.Number)
+					{
+						throw new FormulaParameterMismatchException(cell);
+					}
+
+					dt = new DateTime((int)(double)args[0].value, 1, 1)
+						.AddMonths((int)(double)args[1].value - 1)
+						.AddDays((int)(double)args[2].value - 1);
+
+					if (cell.DataFormat == DataFormat.CellDataFormatFlag.General)
+					{
+						cell.DataFormat = DataFormat.CellDataFormatFlag.DateTime;
+						cell.DataFormatArgs = new DataFormat.DateTimeDataFormatter.DateTimeFormatArgs
+						{
+							Format = "yyyy/MM/dd",
+							CultureName = "en-US",
+						};
+					}
+
+					return dt;
+				#endregion // TIME
 
 				case BuiltinFunctionNames.TIME_EN:
 				case BuiltinFunctionNames.TIME_RU:
@@ -714,7 +786,10 @@ namespace unvell.ReoGrid.Formula
 						throw new FormulaParameterMismatchException(cell);
 					}
 
-					dt = new DateTime(1900, 1, 1, (int)(double)args[0].value, (int)(double)args[1].value, (int)(double)args[2].value);
+					dt = DateTime.FromOADate(0)
+						.AddHours(Math.Truncate((double)args[0].value))
+						.AddMinutes(Math.Truncate((double)args[1].value))
+						.AddSeconds(Math.Truncate((double)args[1].value));
 
 					if (cell.DataFormat == DataFormat.CellDataFormatFlag.General)
 					{
@@ -731,47 +806,107 @@ namespace unvell.ReoGrid.Formula
 
 				case BuiltinFunctionNames.YEAR_EN:
 				case BuiltinFunctionNames.YEAR_RU:
-					dt = (DateTime)GetFunctionArg(cell, funNode.Children, FormulaValueType.DateTime);
-					return dt.Year;
+					args = GetFunctionArgs(cell, funNode.Children, 1);
+					if (args[0].type == FormulaValueType.DateTime)
+					{
+						return ((DateTime)args[0].value).Year;
+					}
+					if (args[0].type == FormulaValueType.Number)
+					{
+						return DateTime.FromOADate((double)args[0].value).Year;
+					}
+					throw new FormulaTypeMismatchException(cell);
 
 				case BuiltinFunctionNames.MONTH_EN:
 				case BuiltinFunctionNames.MONTH_RU:
-					dt = (DateTime)GetFunctionArg(cell, funNode.Children, FormulaValueType.DateTime);
-					return dt.Month;
+					args = GetFunctionArgs(cell, funNode.Children, 1);
+					if (args[0].type == FormulaValueType.DateTime)
+					{
+						return ((DateTime)args[0].value).Month;
+					}
+					if (args[0].type == FormulaValueType.Number)
+					{
+						return DateTime.FromOADate((double)args[0].value).Month;
+					}
+					throw new FormulaTypeMismatchException(cell);
 
 				case BuiltinFunctionNames.DAY_EN:
 				case BuiltinFunctionNames.DAY_RU:
-					dt = (DateTime)GetFunctionArg(cell, funNode.Children, FormulaValueType.DateTime);
-					return dt.Day;
+					args = GetFunctionArgs(cell, funNode.Children, 1);
+					if (args[0].type == FormulaValueType.DateTime)
+					{
+						return ((DateTime)args[0].value).Day;
+					}
+					if (args[0].type == FormulaValueType.Number)
+					{
+						return DateTime.FromOADate((double)args[0].value).Day;
+					}
+					throw new FormulaTypeMismatchException(cell);
 
 				case BuiltinFunctionNames.HOUR_EN:
 				case BuiltinFunctionNames.HOUR_RU:
-					dt = (DateTime)GetFunctionArg(cell, funNode.Children, FormulaValueType.DateTime);
-					return dt.Hour;
+					args = GetFunctionArgs(cell, funNode.Children, 1);
+					if (args[0].type == FormulaValueType.DateTime)
+					{
+						return ((DateTime)args[0].value).Hour;
+					}
+					if (args[0].type == FormulaValueType.Number)
+					{
+						return TimeSpan.FromDays((double)args[0].value).Hours;
+					}
+					throw new FormulaTypeMismatchException(cell);
 
 				case BuiltinFunctionNames.MINUTE_EN:
 				case BuiltinFunctionNames.MINUTE_RU:
-					dt = (DateTime)GetFunctionArg(cell, funNode.Children, FormulaValueType.DateTime);
-					return dt.Minute;
+					args = GetFunctionArgs(cell, funNode.Children, 1);
+					if (args[0].type == FormulaValueType.DateTime)
+					{
+						return ((DateTime)args[0].value).Minute;
+					}
+					if (args[0].type == FormulaValueType.Number)
+					{
+						return TimeSpan.FromDays((double)args[0].value).Minutes;
+					}
+					throw new FormulaTypeMismatchException(cell);
 
 				case BuiltinFunctionNames.SECOND_EN:
 				case BuiltinFunctionNames.SECOND_RU:
-					dt = (DateTime)GetFunctionArg(cell, funNode.Children, FormulaValueType.DateTime);
-					return dt.Second;
+					args = GetFunctionArgs(cell, funNode.Children, 1);
+					if (args[0].type == FormulaValueType.DateTime)
+					{
+						return ((DateTime)args[0].value).Second;
+					}
+					if (args[0].type == FormulaValueType.Number)
+					{
+						return TimeSpan.FromDays((double)args[0].value).Seconds;
+					}
+					throw new FormulaTypeMismatchException(cell);
 
 				case BuiltinFunctionNames.MILLISECOND_EN:
 				case BuiltinFunctionNames.MILLISECOND_RU:
-					dt = (DateTime)GetFunctionArg(cell, funNode.Children, FormulaValueType.DateTime);
-					return dt.Millisecond;
+					args = GetFunctionArgs(cell, funNode.Children, 1);
+					if (args[0].type == FormulaValueType.DateTime)
+					{
+						return ((DateTime)args[0].value).Millisecond;
+					}
+					if (args[0].type == FormulaValueType.Number)
+					{
+						return TimeSpan.FromDays((double)args[0].value).Milliseconds;
+					}
+					throw new FormulaTypeMismatchException(cell);
 
 				case BuiltinFunctionNames.DAYS_EN:
 				case BuiltinFunctionNames.DAYS_RU:
 					args = GetFunctionArgs(cell, funNode.Children, 2);
-					if (args[0].type != FormulaValueType.DateTime || args[1].type != FormulaValueType.DateTime)
+					if (args[0].type == FormulaValueType.DateTime && args[1].type == FormulaValueType.DateTime)
 					{
-						throw new FormulaParameterMismatchException(cell);
+						return ((DateTime)args[0].value - (DateTime)args[1].value).TotalDays;
 					}
-					return ((DateTime)args[0].value - (DateTime)args[1].value).TotalDays;
+					if (args[0].type == FormulaValueType.Number && args[1].type == FormulaValueType.Number)
+					{
+						return TimeSpan.FromDays((double)args[0].value - (double)args[1].value).TotalDays;
+					}
+					throw new FormulaParameterMismatchException(cell);
 
 				#endregion // Datetime
 
@@ -1136,11 +1271,6 @@ namespace unvell.ReoGrid.Formula
 		#endregion // Number
 
 		#region Boolean
-		public static implicit operator bool(FormulaValue value)
-		{
-			return value.type != FormulaValueType.Boolean ? false : (bool)value.value;
-		}
-
 		public static implicit operator FormulaValue(bool b)
 		{
 			return new FormulaValue(FormulaValueType.Boolean, b);
@@ -1148,11 +1278,6 @@ namespace unvell.ReoGrid.Formula
 		#endregion // Boolean
 
 		#region DateTime
-		public static implicit operator DateTime(FormulaValue value)
-		{
-			return value.type != FormulaValueType.DateTime ? new DateTime(1900, 1, 1) : (DateTime)value.value;
-		}
-
 		public static implicit operator FormulaValue(DateTime b)
 		{
 			return new FormulaValue(FormulaValueType.DateTime, b);
@@ -1160,11 +1285,6 @@ namespace unvell.ReoGrid.Formula
 		#endregion // DateTime
 
 		#region Cell
-		public static implicit operator CellPosition(FormulaValue value)
-		{
-			return value.type != FormulaValueType.Cell ? CellPosition.Empty : (CellPosition)value.value;
-		}
-
 		public static implicit operator FormulaValue(CellPosition pos)
 		{
 			return new FormulaValue(FormulaValueType.Cell, pos);
@@ -1172,42 +1292,10 @@ namespace unvell.ReoGrid.Formula
 		#endregion // Cell
 
 		#region Range
-		public static implicit operator RangePosition(FormulaValue value)
-		{
-			return value.type != FormulaValueType.Range ? RangePosition.Empty : (RangePosition)value.value;
-		}
-
 		public static implicit operator FormulaValue(RangePosition range)
 		{
 			return new FormulaValue(FormulaValueType.Range, range);
 		}
-		#endregion // Range
-
-		#region object/null
-		//public static implicit operator object(FormulaValue range)
-		//{
-		//	return new FormulaValue(FormulaValueType.Range, range);
-		//}
-
-		//public static implicit operator FormulaValue(object value)
-		//{
-		//	if (value == null)
-		//		return FormulaValue.Nil;
-		//	else if (value is double)
-		//		return (double)value;
-		//	else if (value is string)
-		//		return (string)value;
-		//	else if (value is bool)
-		//		return (bool)value;
-		//	else if (value is DateTime)
-		//		return (DateTime)value;
-		//	else if (value is ReoGridPos)
-		//		return (ReoGridPos)value;
-		//	else if (value is ReoGridRange)
-		//		return (ReoGridRange)value;
-		//	else
-		//		throw new NotSupportedException();
-		//}
 		#endregion // Range
 	}
 

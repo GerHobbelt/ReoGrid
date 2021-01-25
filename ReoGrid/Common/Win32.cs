@@ -66,7 +66,7 @@ namespace unvell.Common.Win32Lib
 			WM_ERASEBKGND = 0x0014,
 			WM_ENDSESSION = 0x0016,
 			WM_COPYDATA = 0x004A,
-
+			WM_GETDLGCODE = 0x0087,
 			WM_HSCROLL = 0x0114,
 			WM_VSCROLL = 0x0115,
 
@@ -109,6 +109,71 @@ namespace unvell.Common.Win32Lib
 #endregion
 
 			WM_USER = 0x0400,
+
+			EM_SETRECT = 0xB3,
+
+			TCM_FIRST = 0x1300,
+			TCM_SETEXTENDEDSTYLE = TCM_FIRST + 52,
+			TCM_HITTEST = TCM_FIRST + 13,
+			TCM_SETCURSEL = TCM_FIRST + 12,
+			TCM_GETCURFOCUS = TCM_FIRST + 47,
+			TCM_SETCURFOCUS = TCM_FIRST + 48,
+			TCM_GETITEM = TCM_FIRST + 60,
+			TCM_SETITEM = TCM_FIRST + 61,
+		}
+
+		public enum DLGC
+		{
+			DLGC_WANTMESSAGE = 0x0004, /* Pass message to control */
+			DLGC_HASSETSEL = 0x0008, /* Understands EM_SETSEL message */
+		}
+
+		public enum TCHT
+		{
+			TCHT_NOWHERE = 1,
+			TCHT_ONITEMICON = 2,
+			TCHT_ONITEMLABEL = 4,
+			TCHT_ONITEM = TCHT_ONITEMICON | TCHT_ONITEMLABEL,
+		}
+
+		public enum TCIF : int
+		{
+			TCIF_TEXT = 0x1,
+			TCIF_IMAGE = 0x2,
+			TCIF_RTLREADING = 0x4,
+			TCIF_PARAM = 0x8,
+			TCIF_STATE = 0x10,
+		}
+
+		public enum TCIS : int
+		{
+			TCIS_BUTTONPRESSED = 0x1,
+			TCIS_HIGHLIGHTED = 0x2,
+		}
+
+		[StructLayout(LayoutKind.Sequential)]
+		public struct RECT
+		{
+			public int left, top, right, bottom;
+		}
+
+		[StructLayout(LayoutKind.Sequential)]
+		public struct TCHITTESTINFO
+		{
+			public Point pt;
+			public int flags;
+		}
+
+		[StructLayout(LayoutKind.Sequential)]
+		public class TCITEM
+		{
+			public TCIF mask;
+			public TCIS dwState;
+			public TCIS dwStateMask;
+			public string pszText;
+			public int cchTextMax;
+			public int iImage;
+			public IntPtr lParam;
 		}
 
 		public enum EndSessionParam : long
@@ -128,10 +193,19 @@ namespace unvell.Common.Win32Lib
 		}
 
 		[DllImport("USER32.DLL")]
-		public static extern int SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+		public static extern int SendMessage(IntPtr hWnd, int Msg, IntPtr wParam, IntPtr lParam);
+		[DllImport("USER32.DLL")]
+		public static extern int SendMessage(IntPtr hWnd, int msg, IntPtr wParam, ref Win32.RECT lParam);
+		[DllImport("USER32.DLL")]
+		public static extern int SendMessage(IntPtr hWnd, int msg, IntPtr wParam, ref Win32.TCHITTESTINFO lParam);
+		[DllImport("USER32.DLL")]
+		public static extern int SendMessage(IntPtr hWnd, int msg, IntPtr wParam, ref Win32.TCITEM lParam);
 
 		[DllImport("USER32.DLL")]
-		public static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+		public static extern bool PostMessage(IntPtr hWnd, int Msg, IntPtr wParam, IntPtr lParam);
+
+		[DllImport("USER32.DLL")]
+		public static extern IntPtr GetFocus();
 
 		[DllImport("USER32.DLL")]
 		public static extern long MAKELPARAM(int wLow, int wHigh);
@@ -163,10 +237,10 @@ namespace unvell.Common.Win32Lib
 		public static extern bool IsWindowVisible(IntPtr hwnd);
 
 		[DllImport("user32.dll")]
-		public extern static long SetWindowLong(IntPtr hwnd, int index, long value);
+		public static extern int SetWindowLong(IntPtr hwnd, int index, int value);
 
 		[DllImport("user32.dll")]
-		public extern static long GetWindowLong(IntPtr hwnd, int nIndex);
+		public static extern int GetWindowLong(IntPtr hwnd, int nIndex);
 
 		[DllImport("user32.dll")]
 		public static extern int SetForegroundWindow(IntPtr hWnd);
@@ -203,6 +277,12 @@ namespace unvell.Common.Win32Lib
 		public static extern IntPtr GetParent(IntPtr hwnd);
 
 		/// <summary>
+		/// Reparents a specified window.
+		/// </summary>
+		[DllImport("user32.dll")]
+		public static extern IntPtr SetParent(IntPtr hWndChild, IntPtr hWndNewParent);
+
+		/// <summary>
 		/// Retrieves the handle to the ancestor of the specified window.
 		/// </summary>
 		/// <param name="hwnd">A handle to the window whose ancestor is to be retrieved. 
@@ -223,18 +303,14 @@ namespace unvell.Common.Win32Lib
 		[DllImport("user32.dll")]
 		public static extern IntPtr GetWindow(IntPtr hwnd, uint wCMD);
 
-		public enum WindowStyle : long
-		{
-			GWL_EXSTYLE = -20,
-			WS_EX_TRANSPARENT = 0x20,
-		}
+		public const int GWL_STYLE = -16;
+		public const int GWL_EXSTYLE = -20;
 
-		public enum ExtendedWindowStyles : long
-		{
-			WS_EX_NOACTIVATE = 0x08000000L,
-			WS_EX_TOOLWINDOW = 0x00000080L,
-			WS_EX_TRANSPARENT = 0x20,
-		}
+		public const int WS_CHILD = 0x40000000;
+
+		public const int WS_EX_NOACTIVATE = 0x08000000;
+		public const int WS_EX_TOOLWINDOW = 0x00000080;
+		public const int WS_EX_TRANSPARENT = 0x20;
 
 		public enum ShowWindowCmd : int
 		{
@@ -328,7 +404,7 @@ namespace unvell.Common.Win32Lib
 		[DllImport("user32.dll")]
 		public static extern int SetScrollPos(IntPtr hWnd, int nBar, int nPos, bool Redraw);
 
-		[DllImport("user32.dll", SetLastError = false)]
+		[DllImport("user32.dll")]
 		public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInstertAfter, int x, int y, int cx, int cy, uint flags);
 
 		public enum SWP : uint
@@ -1293,9 +1369,9 @@ namespace unvell.Common.Win32Lib
 		[DllImport("user32.dll")]
 		public static extern bool GetCursorPos(ref Point point);
 
-		public static long CreateLParamPoint(int x, int y)
+		public static IntPtr CreateLParamPoint(int x, int y)
 		{
-			return (y << 16) | (x & 0xffff);
+			return (IntPtr)((y << 16) | (x & 0xffff));
 		}
 
 #endregion

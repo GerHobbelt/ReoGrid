@@ -104,10 +104,8 @@ namespace unvell.ReoGrid
 				throw new ArgumentOutOfRangeException("col",
 					"Number of column is out of maximum columns, use either AppendCols or Resize to expend this worksheet.");
 
-			if (data is Array)
+			if (data is Array arr)
 			{
-				var arr = (Array)data;
-
 				if (arr.Rank == 1)
 				{
 					for (int c = col; c < Math.Min(col + arr.Length, this.cols.Count); c++)
@@ -124,10 +122,8 @@ namespace unvell.ReoGrid
 				else
 					throw new ArgumentException("Array with more than 2 ranks is not supported.");
 			}
-			else if (data is IEnumerable<object>)
+			else if (data is IEnumerable<object> elements)
 			{
-				var elements = (IEnumerable<object>)data;
-
 				int c = col;
 				foreach (var ele in elements)
 				{
@@ -136,16 +132,13 @@ namespace unvell.ReoGrid
 					if (c >= this.cols.Count) break;
 				}
 			}
-			else if (data is PartialGrid)
+			else if (data is PartialGrid subgrid)
 			{
-				var subgrid = (PartialGrid)data;
-
 				var range = new RangePosition(row, col, subgrid.Rows, subgrid.Columns);
 				SetPartialGrid(range, subgrid);
 			}
-			else if (data is System.Data.DataTable)
+			else if (data is System.Data.DataTable dt)
 			{
-				var dt = (System.Data.DataTable)data;
 				SetRangeData(new RangePosition(row, col, dt.Rows.Count, dt.Columns.Count), dt);
 			}
 			else
@@ -272,8 +265,7 @@ namespace unvell.ReoGrid
 		/// </summary>
 		/// <param name="cell">cell to be updated</param>
 		/// <param name="data">data to be updated</param>
-		/// <param name="dirtyCellStack">A stack to save cells that are marked as dirty cell, the dirty cell will be updated delay</param>
-		internal void UpdateCellData(Cell cell, object data, Stack<List<Cell>> dirtyCellStack = null)
+		internal void UpdateCellData(Cell cell, object data)
 		{
 			if (cell.body != null)
 			{
@@ -284,7 +276,7 @@ namespace unvell.ReoGrid
 
 			if (this.HasSettings(WorksheetSettings.Edit_AutoFormatCell))
 			{
-				DataFormatterManager.Instance.FormatCell(cell);
+				DataFormatterManager.Instance.FormatCell(cell, Culture);
 			}
 			else
 			{
@@ -307,31 +299,18 @@ namespace unvell.ReoGrid
 			//}
 #endif
 
-			AfterCellDataUpdate(cell, dirtyCellStack);
+			AfterCellDataUpdate(cell);
 		}
 
 		internal bool viewDirty = false;
 
-		private void AfterCellDataUpdate(Cell cell, Stack<List<Cell>> dirtyCellStack = null)
+		private void AfterCellDataUpdate(Cell cell)
 		{
-#if FORMULA
-			if ((this.settings & WorksheetSettings.Formula_AutoUpdateReferenceCell)
-				== WorksheetSettings.Formula_AutoUpdateReferenceCell)
-			{
-				UpdateReferencedFormulaCells(cell, dirtyCellStack);
-			}
-#endif // FORMULA
-
 #if DRAWING
-			if (cell.Data is Drawing.RichText)
+			if (cell.Data is Drawing.RichText rt)
 			{
-				var rt = (Drawing.RichText)cell.Data;
-
-				rt.SuspendUpdateText();
 				rt.Size = cell.Bounds.Size;
 				rt.TextWrap = cell.InnerStyle.TextWrapMode;
-				rt.ResumeUpdateText();
-				rt.UpdateText();
 			}
 			else
 #endif // DRAWING
@@ -416,16 +395,6 @@ namespace unvell.ReoGrid
 		internal void SetCellBody(Cell cell, ICellBody body)
 		{
 			cell.Body = body;
-
-			//if (body != null)
-			//{
-			//	body.OnSetup(cell);
-
-			//	// why?
-			//	UpdateCellFont(cell);
-			//}
-
-			//cell.UpdateContentBounds();
 
 			RequestInvalidate();
 		}
@@ -547,27 +516,6 @@ namespace unvell.ReoGrid
 		}
 
 		/// <summary>
-		/// Try get number data from cell at specified position. If the data is string, 
-		/// this method will try to convert the string into number value.
-		/// </summary>
-		/// <param name="row">Number of row of the cell to get data.</param>
-		/// <param name="col">Number of column of the cell to get data.</param>
-		/// <param name="val">Number data returned and converted from cell.</param>
-		/// <returns>True if data can be get and converted; Otherwise return false.</returns>
-		public bool TryGetNumberData(int row, int col, out double val)
-		{
-			var cell = this.cells[row, col];
-
-			if (cell == null)
-			{
-				val = 0;
-				return false;
-			}
-
-			return CellUtility.TryGetNumberData(cell.Data, out val);
-		}
-
-		/// <summary>
 		/// Get cell display text by specified address
 		/// </summary>
 		/// <param name="address">address to locate a cell</param>
@@ -661,7 +609,7 @@ namespace unvell.ReoGrid
 
 	/// <summary>
 	/// Represents the cell on worksheet. Cell instances are fully managed
-	/// by ReoGrid core. To create custom cell, use <code>CellBody</code> class or </code>ICellBody</code> interface instead.
+	/// by ReoGrid core. To create custom cell, use <code>CellBody</code> class or <code>ICellBody</code> interface instead.
 	/// </summary>
 	/// <seealso cref="CellBody"/>
 	/// <seealso cref="ICellBody"/>
@@ -795,49 +743,25 @@ namespace unvell.ReoGrid
 
 #region Location & Size
 
-		[NonSerialized]
-		private Rectangle bounds;
-
+		internal RGFloat Width => Bounds.Width;
+		internal RGFloat Height => Bounds.Height;
+		internal RGFloat Top => Bounds.Top;
+		internal RGFloat Left => Bounds.Left;
+		internal RGFloat Right => Bounds.Right;
+		internal RGFloat Bottom => Bounds.Bottom;
 		internal Rectangle Bounds
 		{
-			get { return bounds; }
-			set { bounds = value; }
-		}
-
-		internal RGFloat Width
-		{
-			get { return bounds.Width; }
-			set { bounds.Width = value; }
-		}
-
-		internal RGFloat Height
-		{
-			get { return bounds.Height; }
-			set { bounds.Height = value; }
-		}
-
-		internal RGFloat Top
-		{
-			get { return bounds.Y; }
-			set { bounds.Y = value; }
-		}
-
-		internal RGFloat Left
-		{
-			get { return bounds.X; }
-			set { bounds.X = value; }
-		}
-
-		internal RGFloat Right
-		{
-			get { return bounds.Right; }
-			set { bounds.Width += bounds.Right - value; }
-		}
-
-		internal RGFloat Bottom
-		{
-			get { return bounds.Bottom; }
-			set { bounds.Height += bounds.Bottom - value; }
+			get
+			{
+				if (IsMergedCell)
+				{
+					return Worksheet.GetRangeBounds(InternalPos.Row, InternalPos.Col, Rowspan, Colspan);
+				}
+				else
+				{
+					return Worksheet.GetRangeBounds(InternalPos.Row, InternalPos.Col, 1, 1);
+				}
+			}
 		}
 #endregion // Location & Size
 
@@ -1049,6 +973,8 @@ namespace unvell.ReoGrid
 
 		internal StyleParentKind StyleParentKind { get; set; }
 
+		public DiffFlag DiffFlag { get; set; }
+
 #if DEBUG
 		private static int _count;
 #endif // DEBUG
@@ -1130,24 +1056,6 @@ namespace unvell.ReoGrid
 			}
 		}
 
-		/// <summary>
-		/// Determines whether or not this cell is visible. (Cells on hidden rows or columns will become invisibility)
-		/// </summary>
-		[Obsolete("use !IsVisible instead")]
-		public bool IsHidden
-		{
-			get
-			{
-				return !this.IsVisible;
-			}
-		}
-
-		// todo: support multi-lines
-		private RGFloat distributedIndentSpacing;
-		internal RGFloat DistributedIndentSpacing { get { return distributedIndentSpacing; } set { distributedIndentSpacing = value; } }
-		private RGFloat distributedIndentSpacingPrint;
-		internal RGFloat DistributedIndentSpacingPrint { get { return distributedIndentSpacingPrint; } set { distributedIndentSpacingPrint = value; } }
-
 #endregion // Style
 
 #region Border Wraps
@@ -1171,22 +1079,6 @@ namespace unvell.ReoGrid
 #endregion // Border Wraps
 
 #region Cell Body
-		internal void UpdateContentBounds()
-		{
-			if (this.body != null)
-			{
-				Rectangle cb = new Rectangle(this.InnerStyle.Padding.Left, this.InnerStyle.Padding.Top,
-					bounds.Width - 1 - this.InnerStyle.Padding.Left - this.InnerStyle.Padding.Right,
-					bounds.Height - 1 - this.InnerStyle.Padding.Top - this.InnerStyle.Padding.Bottom);
-
-				if (this.body.Bounds != cb)
-				{
-					this.body.Bounds = cb;
-					this.body.OnBoundsChanged();
-				}
-			}
-		}
-
 		/// <summary>
 		/// Get or set the user data attaching to this cell.
 		/// </summary>
@@ -1215,8 +1107,6 @@ namespace unvell.ReoGrid
 							((CellBody)this.body).InnerCell = this;
 						}
 					}
-
-					UpdateContentBounds();
 
 					if (this.Worksheet != null) this.Worksheet.RequestInvalidate();
 				}
@@ -1256,6 +1146,11 @@ namespace unvell.ReoGrid
 		/// All elements
 		/// </summary>
 		All = Data | Formula | DataFormat | Style | Border | Body,
+
+		/// <summary>
+		/// Cell content
+		/// </summary>
+		Content = Data | Formula | DataFormat,
 
 		/// <summary>
 		/// Cell value
@@ -1313,7 +1208,7 @@ namespace unvell.ReoGrid.Utility
 			toCell.Colspan = fromCell.Colspan;
 			toCell.MergeStartPos = fromCell.MergeStartPos;
 			toCell.MergeEndPos = fromCell.MergeEndPos;
-			toCell.Bounds = fromCell.Bounds;
+			toCell.DiffFlag = fromCell.DiffFlag;
 
 			// content
 			CopyCellContent(toCell, fromCell);
@@ -1329,10 +1224,8 @@ namespace unvell.ReoGrid.Utility
 			// style & render
 			toCell.InnerStyle = new WorksheetRangeStyle(fromCell.InnerStyle);
 			toCell.StyleParentKind = fromCell.StyleParentKind;
-			toCell.TextBounds = fromCell.TextBounds;
 			toCell.RenderHorAlign = fromCell.RenderHorAlign;
 			toCell.RenderColor = fromCell.RenderColor;
-			toCell.DistributedIndentSpacing = fromCell.DistributedIndentSpacing;
 
 #if WINFORM
 			toCell.RenderFont = fromCell.RenderFont;
@@ -1343,11 +1236,8 @@ namespace unvell.ReoGrid.Utility
 			toCell.DataFormatArgs = fromCell.DataFormatArgs;
 			toCell.Body = fromCell.body == null ? null : fromCell.body.Clone();
 
-			// cell data
-			toCell.InnerData = fromCell.InnerData;
-			toCell.InnerDisplay = fromCell.DisplayText;
-
 #if FORMULA
+			// cell formula (must go before cell data to prevent overwrite!)
 			toCell.Formula = fromCell.Formula;
 
 			if (fromCell.formulaTree != null)
@@ -1358,6 +1248,10 @@ namespace unvell.ReoGrid.Utility
 			// do not copy formula status since SetPartialGrid method will rebuilt formula status.
 			//toCell.formulaStatus = fromCell.formulaStatus;
 #endif // FORMULA
+
+			// cell data
+			toCell.InnerData = fromCell.InnerData;
+			toCell.InnerDisplay = fromCell.DisplayText;
 
 			// properties
 			toCell.FontDirty = fromCell.FontDirty;
@@ -1391,11 +1285,16 @@ namespace unvell.ReoGrid.Utility
 		/// <summary>
 		/// Try get double value from specified cell.
 		/// </summary>
+		/// <param name="worksheet">Instance of worksheet.</param>
 		/// <param name="cell">Instance of cell.</param>
 		/// <param name="value">The output value converted from data.</param>
 		/// <returns>True if convert is succesful.</returns>
-		public static bool TryGetNumberData(Cell cell, out double value)
+		public static bool TryGetNumberData(Worksheet worksheet, Cell cell, out double value)
 		{
+			if (cell.InnerData == null)
+			{
+				worksheet.RecalcCell(cell);
+			}
 			return TryGetNumberData(cell.InnerData, out value);
 		}
 
