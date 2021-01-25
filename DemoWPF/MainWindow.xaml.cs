@@ -16,18 +16,30 @@ namespace unvell.ReoGrid.WPFDemo
 	/// </summary>
 	public partial class MainWindow : Window
 	{
+		private void Worksheet_CellDataChanged(object sender, unvell.ReoGrid.Events.CellEventArgs e)
+        {
+
+        }
+
+		private void Sheet_DragCellDataChanged(object sender, unvell.ReoGrid.Events.DragCellEventArgs e)
+        {
+			//e.IsCancelled = true;
+        }
+
+
 		public MainWindow()
 		{
 			InitializeComponent();
+            Loaded += MainWindow_Loaded;
 
 			// don't use Clear method in actual application,
 			// instead, load template into the first worksheet directly.
 			grid.Worksheets.Clear();
-
+			
 			// handles event to update menu check status.
 			grid.SettingsChanged += (s, e) => UpdateMenuChecks();
 			grid.CurrentWorksheetChanged += (s, e) => UpdateMenuChecks();
-
+			
 			// add demo sheet 1: document template
 			AddDemoSheet1();
 
@@ -36,8 +48,21 @@ namespace unvell.ReoGrid.WPFDemo
 
 			// add demo sheet 3: cell types
 			AddDemoSheet3();
+			AddDemoSheet4();
 		}
+		private void CurrentWorksheet_FocusPosChanged(object sender, unvell.ReoGrid.Events.CellPosEventArgs e)
+		{
 
+		}
+		private void MainWindow_Loaded(object sender, RoutedEventArgs e)
+        {
+			grid.CurrentWorksheet.BeforeCellDataChanged += Worksheet_BeforeCellDataChanged;
+
+		}
+		private void Worksheet_BeforeCellDataChanged(object sender, unvell.ReoGrid.Events.BeforeCellDataChangedEventArgs e)
+		{
+
+		}
 		private void UpdateMenuChecks()
 		{
 			this.viewHorizontalScrollbarVisible.IsChecked = grid.HasSettings(unvell.ReoGrid.WorkbookSettings.View_ShowHorScroll);
@@ -46,10 +71,17 @@ namespace unvell.ReoGrid.WPFDemo
 			this.viewSheetTabNewButtonVisible.IsChecked = grid.SheetTabNewButtonVisible;
 
 			var sheet = grid.CurrentWorksheet;
+			
+			sheet.FocusPosChanged += Worksheet_FocusPosChanged;
+			sheet.CellDataChanged += Worksheet_CellDataChanged;
+            sheet.DragCellDataChanged += Sheet_DragCellDataChanged;
 			this.viewGuideLineVisible.IsChecked = sheet.HasSettings(WorksheetSettings.View_ShowGridLine);
 			this.viewPageBreaksVisible.IsChecked = sheet.HasSettings(WorksheetSettings.View_ShowPageBreaks);
 		}
+		private void Worksheet_FocusPosChanged(object sender, unvell.ReoGrid.Events.CellPosEventArgs e)
+		{
 
+		}
 		#region Demo Sheet 1 : Document Template
 		private void AddDemoSheet1()
 		{
@@ -77,6 +109,16 @@ namespace unvell.ReoGrid.WPFDemo
 
 			// auto fill other subtotals
 			worksheet.AutoFillSerial("G21", "G22:G35");
+			var dp = new Data.DataProvider();
+			dp.ItemsSource = new List<string>() { "A", "B" };
+			worksheet.RegisterDataProvider(dp);
+			for (int i = 0; i < 3; i++)
+			{
+				Cell cell = worksheet.GetCell(5, i);
+				if (cell == null)
+					cell = worksheet.CreateAndGetCell(5, i);
+				cell.DataProvider = dp;
+			}
 		}
 		#endregion // Demo Sheet 1 : Document Template
 
@@ -218,14 +260,21 @@ namespace unvell.ReoGrid.WPFDemo
 			worksheet[5, 1] = new object[] { "Hyperlink", link };
 
 			// checkbox
-			var checkbox = new CheckBoxCell();
+			//var checkbox = new CheckBoxCell();
+			//worksheet.SetRangeStyles(7, 2, 1, 1, middleStyle);
+			//worksheet.SetRangeStyles(8, 2, 1, 1, grayTextStyle);
+			//worksheet[7, 1] = new object[] { "Check box", checkbox, "Auto destroy after 5 minutes." };
+			//worksheet[8, 2] = "(Keyboard is also supported to change the status of control)";
+			//checkbox.CheckChanged += (s, e) => ShowText(worksheet, "Check box switch to " + checkbox.IsChecked.ToString());
+
+			var dropdown = new CheckBoxCell();
 			worksheet.SetRangeStyles(7, 2, 1, 1, middleStyle);
 			worksheet.SetRangeStyles(8, 2, 1, 1, grayTextStyle);
-			worksheet[7, 1] = new object[] { "Check box", checkbox, "Auto destroy after 5 minutes." };
+			worksheet[7, 1] = new object[] { "Check box", dropdown, "Auto destroy after 5 minutes." };
 			worksheet[8, 2] = "(Keyboard is also supported to change the status of control)";
-			checkbox.CheckChanged += (s, e) => ShowText(worksheet, "Check box switch to " + checkbox.IsChecked.ToString());
+			//checkbox.CheckChanged += (s, e) => ShowText(worksheet, "Check box switch to " + checkbox.IsChecked.ToString());
 
-			// radio & radio group
+			// r11adio & radio group
 			worksheet[10, 1] = "Radio Button";
 			worksheet.SetRangeStyles(10, 2, 3, 1, middleStyle);
 			var radioGroup = new RadioButtonGroup();
@@ -281,7 +330,21 @@ namespace unvell.ReoGrid.WPFDemo
 			// information cell
 			worksheet.SetRangeBorders(19, 0, 1, 10, BorderPositions.Top, RangeBorderStyle.GraySolid);
 		}
+		#region Demo Sheet 4 : DataProvider
+		private void AddDemoSheet4()
+		{
+			/****************** Sheet3 : Built-in Cell Types ********************/
+			var worksheet = grid.NewWorksheet("DataProvider");
+            Data.DataProvider dp = null;
+			dp = new Data.DataProvider();
+			dp.ItemsSource = new List<string>() { "A", "B", "C" };
+			worksheet.RegisterDataProvider(dp);
+			worksheet[0, 0] = "A";
+			worksheet.GetCell(0, 0).DataProvider = dp;
+			// set default sheet style
 
+		}
+		#endregion
 		private void ShowText(Worksheet sheet, string text)
 		{
 			sheet[19, 0] = text;

@@ -8,7 +8,7 @@
 // </auto-generated>
 //------------------------------------------------------------------------------
 
-namespace unvell.ReoGrid.WPFDemo.Properties {
+namespace WpfApp.Properties {
     using System;
     
     
@@ -39,7 +39,7 @@ namespace unvell.ReoGrid.WPFDemo.Properties {
         internal static global::System.Resources.ResourceManager ResourceManager {
             get {
                 if (object.ReferenceEquals(resourceMan, null)) {
-                    global::System.Resources.ResourceManager temp = new global::System.Resources.ResourceManager("unvell.ReoGrid.WPFDemo.Properties.Resources", typeof(Resources).Assembly);
+                    global::System.Resources.ResourceManager temp = new global::System.Resources.ResourceManager("WpfApp.Properties.Resources", typeof(Resources).Assembly);
                     resourceMan = temp;
                 }
                 return resourceMan;
@@ -57,26 +57,6 @@ namespace unvell.ReoGrid.WPFDemo.Properties {
             }
             set {
                 resourceCulture = value;
-            }
-        }
-        
-        /// <summary>
-        ///   查找 System.Byte[] 类型的本地化资源。
-        /// </summary>
-        internal static byte[] computer_laptop_png {
-            get {
-                object obj = ResourceManager.GetObject("computer_laptop_png", resourceCulture);
-                return ((byte[])(obj));
-            }
-        }
-        
-        /// <summary>
-        ///   查找 System.Byte[] 类型的本地化资源。
-        /// </summary>
-        internal static byte[] order_sample {
-            get {
-                object obj = ResourceManager.GetObject("order_sample", resourceCulture);
-                return ((byte[])(obj));
             }
         }
     }

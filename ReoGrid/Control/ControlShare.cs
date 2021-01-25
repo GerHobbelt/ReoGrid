@@ -66,6 +66,7 @@ using Cursor = System.Windows.Input.Cursor;
 
 using unvell.ReoGrid.Main;
 using unvell.ReoGrid.Rendering;
+using unvell.ReoGrid.Data;
 
 namespace unvell.ReoGrid
 {

@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.30323.103
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ReoGrid", "ReoGrid\ReoGrid.csproj", "{8B62357A-ABBC-4DB0-8633-F1D6A6C1EA53}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Extension|Any CPU = Extension|Any CPU
+		Minimum|Any CPU = Minimum|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{8B62357A-ABBC-4DB0-8633-F1D6A6C1EA53}.Debug|Any CPU.ActiveCfg = WPFDebug|Any CPU
+		{8B62357A-ABBC-4DB0-8633-F1D6A6C1EA53}.Debug|Any CPU.Build.0 = WPFDebug|Any CPU
+		{8B62357A-ABBC-4DB0-8633-F1D6A6C1EA53}.Extension|Any CPU.ActiveCfg = WPFExtension|Any CPU
+		{8B62357A-ABBC-4DB0-8633-F1D6A6C1EA53}.Extension|Any CPU.Build.0 = WPFExtension|Any CPU
+		{8B62357A-ABBC-4DB0-8633-F1D6A6C1EA53}.Minimum|Any CPU.ActiveCfg = WPFMinimum|Any CPU
+		{8B62357A-ABBC-4DB0-8633-F1D6A6C1EA53}.Minimum|Any CPU.Build.0 = WPFMinimum|Any CPU
+		{8B62357A-ABBC-4DB0-8633-F1D6A6C1EA53}.Release|Any CPU.ActiveCfg = WPFRelease|Any CPU
+		{8B62357A-ABBC-4DB0-8633-F1D6A6C1EA53}.Release|Any CPU.Build.0 = WPFRelease|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {3F7F62B9-DAC7-4563-90BE-D51192FDAFBC}
+	EndGlobalSection
+EndGlobal
